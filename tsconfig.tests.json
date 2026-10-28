@@ -1,0 +1,70 @@
+{
+  // A dedicated project for the test suite, because the app config deliberately
+  // does not see these files: `tsconfig.json` has `"include": ["src"]` and
+  // `pnpm build` / `pnpm typecheck` call plain `tsc` (never `tsc -b`), so before
+  // this file existed **no compiler had ever read `tests/**`**. 17 test files and
+  // 167 assertions were typechecked by nobody, and every wrong call into `src/`
+  // in them — a renamed export, a changed parameter, an argument the store never
+  // accepted — surfaced only as a runtime failure in Node's type-stripping
+  // runner, which reports *behaviour*, not intent.
+  //
+  // Two decisions written down rather than worked around:
+  //
+  //   * The app config's `include` was NOT widened. `"include": ["src", "tests"]`
+  //     would put tests on `pnpm build`'s path (`build` = `tsc && vite build`) and
+  //     make the release build depend on the test tree. Separation is the point.
+  //   * `"types": []` and `tests/helpers/node-builtins.d.ts` exist because
+  //     **`@types/node` is not installed in this repository** (measured:
+  //     `node_modules/@types` contains only `react` and `react-dom`), and installing
+  //     it is an `npm/pnpm install` — banned inside a linked worktree, and the
+  //     integrator's call anyway. Without any ambient declaration every test file
+  //     fails with TS2307 on `node:test` / `node:assert/strict` (34 errors, one per
+  //     import line), i.e. an environment gap dressed up as 34 defects, which is
+  //     exactly the noise level that makes a check ignorable. The shim declares the
+  //     six names the suite actually uses, is scoped to `tests/` by this project
+  //     only, and must be deleted the moment `@types/node` is installed — that is
+  //     why it is a file with a "replace me" header rather than inline `declare`
+  //     statements nobody will find.
+  //
+  // The strictness flags mirror `tsconfig.json` exactly, so a green
+  // `pnpm typecheck:tests` means the tests hold themselves to the same bar as the
+  // app, not to a laxer one. r19-o2-4: `noUncheckedIndexedAccess` is now enabled in
+  // all three configs (this file included); `exactOptionalPropertyTypes` remains the
+  // one measured and deliberately NOT enabled — see `tsconfig.json`'s comment for the
+  // numbers and the reason.
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode — same as the app config, because the tests import app source. */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "incremental": true,
+
+    /* NO @types/node in this repository — see `tests/helpers/node-builtins.d.ts`.
+       `react` is listed explicitly because the app program only gets its ambient
+       `React` namespace by accident of some other file importing "react":
+       `src/lib/number-keys.ts:31` writes `React.KeyboardEvent` in a *type* position
+       without importing React, and `tests/number-keys.test.ts:16,54,63` do the same.
+       A tests-only program that imports no React therefore reported TS2503 on both
+       until it was named here. The underlying "global React namespace used without
+       an import" fragility belongs to `src/` and is in the handoff, not fixed here. */
+    "types": ["react"],
+
+    /* Linting — identical to tsconfig.json, deliberately not relaxed here. */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true
+  },
+  "include": ["tests/**/*.ts"]
+}

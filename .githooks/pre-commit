@@ -1,0 +1,21 @@
+#!/bin/sh
+# Refuse to commit anything under the linked-worktree roots.
+#
+# Incident behind this (2026-10-15, during the r13 merge of d7-tooling): a line
+# running from the main checkout staged `.worktrees/r13-d1-security/src-tauri/
+# src/path_guard.rs` — an explicit `git add <path>` bypasses .gitignore, which
+# already covers both roots. The bogus index entry then blocked the next merge
+# ("Merge with strategy ort failed") until someone noticed and reset it. No
+# commit ever contained it, but the failure mode is silent until a merge dies.
+#
+# Installed with:  git config core.hooksPath .githooks
+# (repo-local, not global; see docs/worktrees.md.)
+# Enabled AND verified on 2026-10-16 (round 17 o3-1): staging `.worktrees/probe.md`
+# made this hook reject the commit with exit 1. A fresh clone still has to re-run
+# the command above — core.hooksPath is repo-local and git does not distribute it.
+if git diff --cached --name-only --diff-filter=ACM | grep -Eq '^(\.worktrees|\.wt)/'; then
+  echo "pre-commit: staged files under .worktrees/ or .wt/ — those are linked" >&2
+  echo "worktrees, not repository content. Unstage with: git reset -- <path>" >&2
+  exit 1
+fi
+exit 0

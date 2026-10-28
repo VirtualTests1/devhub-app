@@ -1,0 +1,15 @@
+# Project-local sccache configuration (R1 build-cache research).
+#
+# `rustc-wrapper` points at the vendored sccache binary so every build routes
+# through it without a global install or a user-level cargo config.
+#
+# The cache directory is set by `env.ps1` (SCCACHE_DIR -> src-tauri/.sccache-cache)
+# rather than here: cargo's `[env]` does not reliably propagate to the sccache
+# server process on Windows, so the pin lives in the build-env script that every
+# `cargo` invocation on this machine already sources.
+#
+# To opt out for a single build: `RUSTC_WRAPPER= cargo build`.
+# No `[build] rustc-wrapper` here on purpose: vendor/sccache is machine-local and
+# gitignored, so a tracked path to it breaks every fresh clone / linked worktree
+# before cargo can compile anything. env.ps1 sets RUSTC_WRAPPER to the vendored
+# binary only when it actually exists; otherwise cargo runs unwrapped.

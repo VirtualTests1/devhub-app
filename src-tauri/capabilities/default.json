@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window. Trimmed to what the webview actually calls, verified by grep over src/: plugin-opener (openUrl), plugin-dialog (save/open/ask) and the window methods isMaximized/toggleMaximize/minimize/close, the data-tauri-drag-region start-dragging path, and setProgressBar (r24-R2; core:window:default does NOT include allow-set-progress-bar). Removed and why: shell:default (no @tauri-apps/plugin-shell import anywhere - it only grants shell:allow-open, and URL opening goes through opener), opener:allow-reveal-item-in-dir (already inside opener:default; the reveal that runs is the Rust-side tauri_plugin_opener::reveal_item_in_dir call, which the ACL does not gate), core:window:allow-is-maximized (already inside core:window:default, which core:default pulls in), and allow-show/allow-set-focus/allow-maximize/allow-unmaximize - the webview never calls these; window.show() at lib.rs is a Rust call. dialog:allow-ask STAYS because dialog:default is only allow-message/allow-save/allow-open (gen/schemas/acl-manifests.json), so dropping it would silently kill the 9 askDialog confirmations.",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "dialog:default",
+    "dialog:allow-ask",
+    "core:window:allow-minimize",
+    "core:window:allow-start-dragging",
+    "core:window:allow-toggle-maximize",
+    "core:window:allow-close",
+    "core:window:allow-set-progress-bar",
+    "core:window:allow-request-user-attention"
+  ]
+}

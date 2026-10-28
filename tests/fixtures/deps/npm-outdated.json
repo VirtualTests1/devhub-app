@@ -1,0 +1,86 @@
+{
+  "@tauri-apps/api": {
+    "current": "2.12.1",
+    "wanted": "2.12.4",
+    "latest": "2.12.4",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\@tauri-apps\\api"
+  },
+  "@tauri-apps/cli": {
+    "current": "2.12.1",
+    "wanted": "2.12.3",
+    "latest": "2.12.3",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\@tauri-apps\\cli"
+  },
+  "@tauri-apps/plugin-dialog": {
+    "current": "2.8.1",
+    "wanted": "2.8.3",
+    "latest": "2.8.3",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\@tauri-apps\\plugin-dialog"
+  },
+  "@tauri-apps/plugin-opener": {
+    "current": "2.7.0",
+    "wanted": "2.7.2",
+    "latest": "2.7.2",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\@tauri-apps\\plugin-opener"
+  },
+  "@vitejs/plugin-react": {
+    "current": "6.1.1",
+    "wanted": "6.1.2",
+    "latest": "6.1.2",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\@vitejs\\plugin-react"
+  },
+  "eslint": {
+    "current": "9.39.4",
+    "wanted": "9.39.4",
+    "latest": "10.13.0",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\eslint"
+  },
+  "eslint-plugin-react-hooks": {
+    "current": "5.2.0",
+    "wanted": "5.2.0",
+    "latest": "7.1.1",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\eslint-plugin-react-hooks"
+  },
+  "lucide-react": {
+    "current": "1.49.0",
+    "wanted": "1.59.0",
+    "latest": "1.59.0",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\lucide-react"
+  },
+  "react": {
+    "current": "19.3.0",
+    "wanted": "19.3.1",
+    "latest": "19.3.1",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\react"
+  },
+  "react-dom": {
+    "current": "19.3.0",
+    "wanted": "19.3.1",
+    "latest": "19.3.1",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\react-dom"
+  },
+  "typescript": {
+    "current": "6.0.3",
+    "wanted": "6.0.3",
+    "latest": "7.0.2",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\typescript"
+  },
+  "vite": {
+    "current": "8.3.2",
+    "wanted": "8.3.4",
+    "latest": "8.3.4",
+    "dependent": "r21-r2",
+    "location": "<repo>\\node_modules\\vite"
+  }
+}

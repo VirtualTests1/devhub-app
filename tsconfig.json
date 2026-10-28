@@ -1,0 +1,63 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    // R18-O3: `pnpm gate` runs three tsc programs back to back and `pnpm build`
+    // runs one of them again; each cold pass costs ~29-48 s on this tree. The
+    // incremental cache (tsconfig.tsbuildinfo, git-ignored) turns every warm
+    // pass into ~1 s with identical diagnostics — the file is pure finger-
+    // printing, and TS validates it against the config and inputs.
+    "incremental": true,
+    "jsx": "react-jsx",
+
+    /* Linting */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitReturns": true,
+    "verbatimModuleSyntax": true,
+    "noUncheckedIndexedAccess": true
+
+    /*
+      Two more strictness flags were measured on this tree. One is now ON, one is
+      deliberately still OFF; both sets of numbers are `pnpm exec tsc` error counts
+      with the flag added to the block above; nothing here is an estimate.
+
+      "noUncheckedIndexedAccess": true  -> ON since r19-o2 (2026-10-18).
+        Measured trajectory on this tree: 85 errors with the flag flipped on
+        (ede7891), 62 after the store cluster was fixed (8ffffc5), 0 after the
+        lib + shell clusters (9eac0c5). r19-o2-4 flipped the same flag in
+        tsconfig.tests.json and tsconfig.node.json, so all three compiler
+        programs now hold the same bar. The old "31 errors" note measured an
+        earlier state of the tree and is superseded.
+        Every fix used an explicit guard / `??` fallback / early return — no `!`,
+        no `as` (check-invariants.mjs keeps ESCAPE_HATCH_BASELINE = {}).
+
+      "exactOptionalPropertyTypes": true -> still OFF. 35 errors across 11 files
+        (src/store/customize.ts 8, dialogs/ProjectSettingsDialog.tsx 8,
+        components/SettingsRows.tsx 4, views/FrequentView.tsx 3, store/ui.ts 3,
+        store/downloads.ts 2, views/ProjectsView.tsx 2, and 3 singletons).
+        Rejecting this one is not laziness: `setRepo(slug, { alias: undefined })`
+        is how the code CLEARS a field — the spread over the old value with an
+        explicit undefined is the intent. exactOptionalPropertyTypes declares
+        that illegal, so enabling it means redesigning the clear-semantics of
+        three stores plus every prop table that passes `x ?? undefined` down.
+        That is a real refactor, not a type annotation, and it belongs to the
+        agents who own those components.
+
+      Neither flag is disabled with an `any` or an `@ts-ignore` anywhere.
+    */
+  },
+  "include": ["src"]
+}

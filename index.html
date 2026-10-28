@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DevHub</title>
+    <script>
+      // The boot surface follows the saved theme, not the default one.
+      //
+      // The palette is decided by `src/store/appearance.ts`, which lives in
+      // `localStorage` on purpose — Rust never sees it. So this script reads that key
+      // directly: it is the only code that runs early enough to affect the first
+      // painted frame, and a first frame in the wrong theme is exactly the "白屏然后
+      // 变色" artefact this file exists to remove.
+      //
+      // `system` is resolved with the same media query `resolveTheme` uses, so the
+      // boot surface and the app agree about what "跟随系统" means right now. A corrupt
+      // or absent key leaves the attribute unset, which is the dark default the CSS
+      // declares — the pre-existing behaviour, not a new state.
+      (function () {
+        try {
+          var saved = JSON.parse(localStorage.getItem("devhub.appearance.v1") || "null");
+          var theme = saved && saved.theme;
+          if (theme === "system") {
+            theme =
+              window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches
+                ? "light"
+                : "dark";
+          }
+          if (theme === "light" || theme === "dark") {
+            document.documentElement.setAttribute("data-boot-theme", theme);
+          }
+        } catch (e) {
+          /* a broken key must not cost the user the boot surface */
+        }
+      })();
+    </script>
+    <style>
+      /* The white rectangle that used to greet every launch had two sources: the
+         document background, and WebView2 painting before any CSS existed. The
+         window now starts hidden and is only revealed once this surface has painted
+         (`note_boot_painted`), so what these colours describe is the first thing the
+         compositor ever shows.
+
+         白（主）is the default, so the unattributed state is the light surface and
+         dark is the override — the same order `src/index.css` and the default
+         preference now use. These numbers are the n-50 / n-900 / n-600 steps of the
+         neutral ramp and b-500/b-600 of the blue ramp, copied as hex because this
+         block runs before that stylesheet exists; if the ramps move, move these. */
+      :root {
+        --boot-bg: #f5f7fa;
+        --boot-fg: #5f636c;
+        --boot-name: #0d0e12;
+        --boot-track: rgba(0, 0, 0, 0.1);
+        --boot-hint: #767a83;
+        --boot-accent-a: #438af1;
+        --boot-accent-b: #1f70de;
+        --boot-accent-glow: rgba(31, 112, 222, 0.3);
+      }
+
+      html[data-boot-theme="dark"],
+      html[data-boot-theme="dark"] body {
+        --boot-bg: #0d0e12;
+        --boot-fg: #a0a5ae;
+        --boot-name: #f5f7fa;
+        --boot-track: rgba(255, 255, 255, 0.08);
+        --boot-hint: #767a83;
+        /* Blue has to get lighter to hold contrast on ink, which is the same
+           reason `--color-primary` steps up in the dark theme. */
+        --boot-accent-a: #69a5fe;
+        --boot-accent-b: #438af1;
+        --boot-accent-glow: rgba(105, 165, 254, 0.28);
+        color-scheme: dark;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--boot-bg);
+        color-scheme: light;
+      }
+
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        box-sizing: border-box;
+        align-items: center;
+        justify-content: center;
+        background: var(--boot-bg);
+        font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+        color: var(--boot-fg);
+        /* Fades out when React mounts, so the hand-off is a dissolve rather than a
+           jump cut even on a warm start where the wait is a few frames. */
+        transition: opacity 0.28s ease-out;
+      }
+
+      #boot[data-leaving="1"] {
+        opacity: 0;
+      }
+
+      #boot .col {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        width: min(320px, 70vw);
+      }
+
+      #boot .mark {
+        width: 34px;
+        height: 34px;
+        border-radius: 10px;
+        background: linear-gradient(140deg, var(--boot-accent-a), var(--boot-accent-b));
+        box-shadow: 0 6px 22px var(--boot-accent-glow);
+        animation: boot-pulse 1.6s ease-in-out infinite;
+      }
+
+      #boot .name {
+        font-size: 15px;
+        font-weight: 600;
+        letter-spacing: 0.01em;
+        color: var(--boot-name);
+      }
+
+      #boot .phase {
+        font-size: 12px;
+        min-height: 1.4em;
+        text-align: center;
+      }
+
+      #boot .track {
+        position: relative;
+        width: 100%;
+        height: 2px;
+        overflow: hidden;
+        border-radius: 2px;
+        background: var(--boot-track);
+      }
+
+      #boot .track i {
+        position: absolute;
+        inset: 0 auto 0 0;
+        width: 38%;
+        border-radius: 2px;
+        background: linear-gradient(
+          90deg,
+          transparent,
+          var(--boot-accent-a),
+          transparent
+        );
+        animation: boot-slide 1.25s linear infinite;
+      }
+
+      #boot .hint {
+        font-size: 11px;
+        line-height: 1.5;
+        min-height: 2.9em;
+        text-align: center;
+        color: var(--boot-hint);
+      }
+
+      @keyframes boot-slide {
+        from {
+          transform: translateX(-100%);
+        }
+        to {
+          transform: translateX(300%);
+        }
+      }
+
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 0.9;
+        }
+        50% {
+          transform: scale(1.08);
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #boot .mark,
+        #boot .track i {
+          animation: none;
+        }
+        #boot .track i {
+          width: 100%;
+          opacity: 0.5;
+        }
+      }
+    </style>
+    <script>
+      // Early fatal-error reporter.
+      //
+      // main.tsx registers its own handlers, but those run only AFTER every
+      // imported module has been evaluated. An exception thrown during module
+      // initialisation (an import cycle touching a not-yet-initialised binding,
+      // a store constructor throwing, ...) happens before that, and the result
+      // is a silent white window - which is exactly how one debugging round
+      // here lost an hour guessing.
+      //
+      // This inline script registers first, so any startup crash paints the
+      // error into the window instead of leaving it blank.
+      (function () {
+        function fatal(title, detail) {
+          var root = document.getElementById("root");
+          if (!root) return;
+          var text =
+            detail instanceof Error
+              ? detail.message + "\n\n" + (detail.stack || "")
+              : String(detail);
+          root.innerHTML = "";
+          var box = document.createElement("div");
+          box.setAttribute(
+            "style",
+            "padding:24px;font:12px/1.6 ui-monospace,Consolas,monospace;color:#fca5a5;background:#0c0d10;height:100%;overflow:auto;white-space:pre-wrap",
+          );
+          box.textContent = title + "\n\n" + text;
+          root.appendChild(box);
+        }
+        window.addEventListener("error", function (e) {
+          fatal("运行时错误", e.error || e.message);
+        });
+        window.addEventListener("unhandledrejection", function (e) {
+          fatal("未处理的 Promise 拒绝", e.reason);
+        });
+      })();
+
+      // The boot surface's own clock.
+      //
+      // "正在加载…" with no motion and no elapsed time is what made a cold dev
+      // start (measured here: 21 s of Vite dependency optimisation) read as a
+      // crash. This script runs before any module is loaded, so it can report
+      // while the module graph is still being built - and it says what the wait
+      // actually is once it has gone on long enough to need explaining.
+      (function () {
+        window.__devhubBoot = (function () {
+          var started = Date.now();
+          var phaseEl, hintEl;
+          function paint() {
+            if (!phaseEl || !hintEl) {
+              phaseEl = document.getElementById("boot-phase");
+              hintEl = document.getElementById("boot-hint");
+            }
+            if (!phaseEl || !hintEl) return;
+            var secs = Math.floor((Date.now() - started) / 1000);
+            var phase = phaseEl.getAttribute("data-phase") || "正在载入界面模块";
+            phaseEl.textContent = phase + "（已等待 " + secs + " 秒）";
+            hintEl.textContent =
+              secs < 6
+                ? ""
+                : "首次启动需要预构建依赖，本机实测约 20 秒；之后是秒开。" +
+                  "如果长时间停在这里，请查看终端里 vite 的输出。";
+          }
+          return {
+            setPhase: function (text) {
+              if (phaseEl) phaseEl.setAttribute("data-phase", text);
+              else {
+                var el = document.getElementById("boot-phase");
+                if (el) el.setAttribute("data-phase", text);
+              }
+              paint();
+            },
+            tick: paint,
+          };
+        })();
+        window.__devhubBoot.timer = window.setInterval(window.__devhubBoot.tick, 500);
+      })();
+    </script>
+  </head>
+
+  <body>
+    <!-- A sibling of #root, not a child: React replaces everything inside #root
+         when it mounts, which would tear the boot surface down mid-paint. Kept
+         outside, it can fade over the finished UI instead. -->
+    <div id="boot" role="status" aria-live="polite">
+      <div class="col">
+        <div class="mark"></div>
+        <div class="name">DevHub</div>
+        <div class="track"><i></i></div>
+        <div class="phase" id="boot-phase" data-phase="正在载入界面模块"></div>
+        <div class="hint" id="boot-hint"></div>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script>
+      // Tell the app the boot surface is on screen, so it can show the window.
+      //
+      // Rust no longer calls `show()` during startup (see `note_boot_painted` in
+      // `src-tauri/src/lib.rs`), so this is what ends the hidden phase. Two things
+      // make it safe for the app to wait on this:
+      //   - it retries, because `__TAURI_INTERNALS__` is injected by the webview and
+      //     is not guaranteed to exist on the first frame;
+      //   - Rust has its own deadline and reveals the window anyway, so a page that
+      //     never signals - broken IPC, a thrown script, a dev server still building
+      //     the module graph - delays the window rather than hiding the application.
+      (function () {
+        var sent = false;
+        var tries = 0;
+        function send() {
+          if (sent) return true;
+          var ipc = window.__TAURI_INTERNALS__;
+          if (!ipc || typeof ipc.invoke !== "function") return false;
+          sent = true;
+          try {
+            // A rejection is left alone deliberately: the deadline is the recovery,
+            // and there is nothing a user could do with a failed reveal here.
+            ipc.invoke("note_boot_painted");
+          } catch (e) {
+            /* the deadline covers this too */
+          }
+          return true;
+        }
+        // Two frames. The first is when the browser paints what the parser built; the
+        // second is when that paint has reached the compositor, which is the moment
+        // worth showing a window for.
+        requestAnimationFrame(function () {
+          requestAnimationFrame(send);
+        });
+        var timer = window.setInterval(function () {
+          if (send() || ++tries > 40) window.clearInterval(timer);
+        }, 100);
+      })();
+    </script>
+    <script>
+      // The boot-surface half of the native-context-menu rule.
+      //
+      // WebView2's default right-click menu offers 检查 / 查看源代码 / 刷新 -
+      // 检查 opens DevTools against a production build, and 刷新 reloads a window
+      // that has no page to go back to. The rule itself, and the exemption for
+      // editable fields, live in `src/lib/context-menu.ts`; this block only covers
+      // the time before that module is parsed, and hands back its own removal so
+      // the selector cannot be maintained in two places.
+      //
+      // Registered in the capture phase so a component's own onContextMenu (which
+      // calls preventDefault) still wins: this listener only fires when nothing
+      // else has already handled the event.
+      (function () {
+        var sel = "input, textarea, [contenteditable='true'], [contenteditable=''], [contenteditable='plaintext-only']";
+        function onMenu(e) {
+          if (e.target && e.target.closest && e.target.closest(sel)) return;
+          e.preventDefault();
+        }
+        document.addEventListener("contextmenu", onMenu, true);
+        window.__devhubContextMenuGuard = function () {
+          document.removeEventListener("contextmenu", onMenu, true);
+        };
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+

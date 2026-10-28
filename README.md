@@ -1,0 +1,63 @@
+# DevHub
+
+Windows 桌面应用：把 GitHub 项目集中到一个图标墙，完成搜索、下载、启动和清理。
+
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+## 功能
+
+- **项目墙**：搜索、排序、置顶、拖拽、多选。
+- **下载**：`owner/repo` 或 GitHub 链接；自动降级网络、显示进度、支持重试和取消。
+- **启动**：识别项目类型并生成命令；确认后运行，支持多步骤、暂停、停止和端口分配。
+- **设置**：别名、封面、启动命令、端口段、Python 环境、分支。
+- **记录与诊断**：操作记录、失败历史、网络诊断、环境状态。
+- **外观**：浅色/深色/跟随系统；中英文界面。
+
+## 环境
+
+- Windows 10/11，WebView2。
+- 源码构建：Node.js 20.19+、pnpm 10+、Rust、MSVC。
+
+## 运行
+
+```powershell
+pnpm install
+pnpm tauri dev
+```
+
+首次下载项目时，如果没有 Git，应用会准备一份便携 Git。
+
+## 构建
+
+```powershell
+pnpm tauri build --no-bundle
+.\scripts\pack-portable.ps1
+```
+
+产物在 `src-tauri/target/release/`；便携 ZIP 在 `.pack/`。
+
+## 测试
+
+```powershell
+pnpm test
+pnpm gate
+pnpm test:rust
+```
+
+## 目录
+
+```
+src/            React 前端
+src-tauri/      Rust / Tauri 后端
+tests/          前端测试
+scripts/        构建、检查与验证脚本
+portable/       便携版资源
+```
+
+## 发布
+
+[GitHub Releases](https://github.com/VirtualTests1/devhub-app/releases) — 版本说明与源码包。
+
+## 许可证
+
+MIT

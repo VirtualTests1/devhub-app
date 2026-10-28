@@ -1,0 +1,1219 @@
+@import "tailwindcss" source(none);
+
+/*
+  R18-O3 · 显式来源约束。
+
+  默认的自动探源从 cwd 起步、只认「根 .gitignore」，于是 `src-tauri/target`
+  （只被 `src-tauri/.gitignore` 忽略）和 `.worktrees/` 下 90 个完整检出都会被
+  当成内容扫描 —— 实测同一份代码：主检出构建 99% 时间花在
+  `@tailwindcss/vite:generate`（扫描 24 GB 的 target 树），而空 worktree 只要
+  12 秒。类名只存在于 `src/**` 与 `index.html`，因此关闭自动探源、显式登记
+  这两个来源：产出 CSS 与之前逐字节一致（560 个选择器集合相同），构建时间
+  与检出里有没有 target/、有多少 worktree 彻底解耦。
+*/
+@source "../src";
+@source "../index.html";
+
+/*
+  r21-o1 O1-3 · 把 cn() 的实现自身排除出扫描。
+
+  `src/lib/utils.ts` 是分组规则表：注释与正则里写着 `rounded-l-lg`、`scroll-mt-3`、
+  `self-center` 这类“被探针验证过”的示例类名，而 Tailwind 提取器读的是文件原文、
+  不是 JSX。实测：只把 utils.ts 换成本地 cn() 实现（其余 src 未动），产出 CSS
+  从 77004 B 涨到 80697 B（+3693 B）—— 涨出来的全是规则表自己的示例词。
+  该文件没有任何 className 调用点（真实类名在 .tsx 与 store/ 的映射表里，那些
+  文件仍在扫描范围内），所以登记为排除来源，CSS 回落到改动前的水平。
+*/
+@source not "../src/lib/utils.ts";
+
+/*
+  DevHub theme — 白（主）· 黑（字）· 蓝（辅）.
+
+  Three primitives and nothing else. Every surface, border and label in the app
+  is a lightness step of one of them:
+
+    --n-*    中性阶：白 (n-0) 到黑 (n-1000)，色相固定在 265、彩度 ≤0.016，
+             所以它读起来是"纸与墨"，不是"暖灰/冷灰/紫灰"。
+    --b-*    蓝阶：色相固定在 258，是唯一允许进入 chrome 的色相。
+    语义色    success/warning/danger —— 只用来表达状态，不参与装饰。
+
+  The old file gave each skin its own base hue (60 warm / 264 cold / 292 violet)
+  and its own accent, which is why the palette could not be described in one
+  sentence. A skin now carries *density* only — radius, elevation, motion speed,
+  grid rhythm, label typography — see the skin section further down.
+
+  Both themes are the same ladder read from opposite ends: the light theme is
+  paper-dominant with ink text, the dark theme is ink-dominant with paper text,
+  and `--color-primary` is blue in both.
+
+  Contrast figures in the blocks below are computed (sRGB→OKLab→WCAG, round-trip
+  checked), not eyeballed. The pairs that carry the app:
+
+    light  #1f70de label on white ......... 4.74  AA
+    light  ink n-900 on card n-0 ........... 19.3  AA
+    light  muted n-600 on card n-0 ......... 6.02  AA
+    dark   n-1000 label on #69a5fe ......... 8.21  AA
+    dark   paper n-0 on card n-800 .......... 15.6  AA
+    dark   muted n-400 on card n-800 ........ 8.4   AA
+*/
+
+/* --- 三条基色的台阶 -------------------------------------------------------
+   Declared before `@theme` because the semantic tokens below are *pointers*
+   into these ramps. Keeping the numbers in one place is what lets a theme
+   change by re-pointing rather than by re-inventing colours.
+   ----------------------------------------------------------------------- */
+:root {
+  /* The un-styled document is dark, so a document that never gets its
+     `data-theme` written (dead script, half-painted frame) still has a working
+     pair of surfaces instead of a white box. */
+  color-scheme: dark;
+
+  --n-0: oklch(1 0 265);
+  --n-25: oklch(0.986 0.002 265);
+  --n-50: oklch(0.975 0.004 265);
+  --n-75: oklch(0.962 0.005 265);
+  --n-100: oklch(0.95 0.006 265);
+  --n-150: oklch(0.93 0.008 265);
+  --n-200: oklch(0.905 0.01 265);
+  --n-250: oklch(0.875 0.012 265);
+  --n-300: oklch(0.845 0.013 265);
+  --n-400: oklch(0.74 0.014 265);
+  --n-500: oklch(0.62 0.015 265);
+  --n-600: oklch(0.5 0.016 265);
+  --n-700: oklch(0.38 0.014 265);
+  --n-750: oklch(0.3 0.012 265);
+  --n-800: oklch(0.24 0.012 265);
+  --n-850: oklch(0.2 0.01 265);
+  --n-900: oklch(0.165 0.008 265);
+  --n-950: oklch(0.13 0.006 265);
+  --n-1000: oklch(0.1 0.005 265);
+
+  --b-100: oklch(0.94 0.025 258); /* #e1ecfc */
+  --b-200: oklch(0.88 0.055 258); /* #c2d9fc */
+  --b-300: oklch(0.8 0.1 258); /* #96c0fe */
+  --b-400: oklch(0.72 0.145 258); /* #69a5fe */
+  --b-500: oklch(0.64 0.17 258); /* #438af1 */
+  --b-600: oklch(0.56 0.185 258); /* #1f70de */
+  --b-700: oklch(0.5 0.185 258); /* #005dc9 */
+  --b-800: oklch(0.44 0.16 258); /* #034da8 */
+  --b-900: oklch(0.38 0.14 258); /* #013e8b */
+}
+
+@theme {
+  /* --- surfaces: five steps of "height", the app's whole elevation language ---
+     Dark is the default so an un-styled document never opens in the wrong
+     theme, but `applyAppearance` always writes `data-theme`, and the default
+     preference is now light (白主). */
+  --color-strip: var(--n-950);
+  --color-background: var(--n-900);
+  --color-sidebar: var(--n-850);
+  --color-card: var(--n-800);
+  --color-raised: var(--n-750);
+
+  --color-foreground: var(--n-0);
+  --color-card-foreground: var(--n-0);
+
+  --color-muted: var(--n-800);
+  --color-muted-foreground: var(--n-400);
+
+  /* two border weights: hairline for tiles/dividers, normal for containers */
+  --color-border: var(--n-750);
+  --color-border-weak: var(--n-800);
+  --color-input: var(--n-700);
+
+  --color-accent: var(--n-750);
+  --color-accent-foreground: var(--n-0);
+
+  --color-primary: var(--b-400);
+  --color-primary-foreground: var(--n-1000);
+  --color-ring: var(--b-400);
+
+  /* Status, and the only other hues in the app. Values differ per theme
+     because a step that clears 4.5:1 on white cannot also clear it on ink —
+     see the light block for the counterpart. */
+  --color-success: oklch(0.65 0.15 155);
+  --color-warning: oklch(0.68 0.14 75);
+  --color-danger: oklch(0.65 0.19 25);
+  --color-info: var(--b-400);
+
+  /* --- type scale ----------------------------------------------------------
+     Six steps. The old four stopped at 15px (`view`), which is why the whole app
+     read 小气: the largest text on the 项目 page was a 15px page title, and there
+     was no step at all for a number or an empty state to sit on.
+
+     The floor moved from 11px to 12px. The original comment called 11px a hard
+     floor because 64 hand-written 10-11px sizes were going blurry at Windows 125%
+     scaling — 12px is still above that threshold and it is what makes the ladder
+     readable instead of dense.
+
+     `--text-caption` … `--text-view` are the working ladder; `brand`, `stat` and
+     `display` are the voice steps that carry hierarchy at a glance. */
+  --text-caption: 0.75rem;
+  --text-caption--line-height: 1.45;
+  --text-body: 0.875rem;
+  --text-body--line-height: 1.6;
+  --text-view: 1.0625rem;
+  --text-view--line-height: 1.35;
+  --text-brand: 1.375rem;
+  --text-brand--line-height: 1.25;
+  --text-stat: 1.25rem;
+  --text-stat--line-height: 1.1;
+  --text-display: 1.75rem;
+  --text-display--line-height: 1.15;
+  --text-display-lg: 2.5rem;
+  --text-display-lg--line-height: 1.05;
+
+  --radius-xl: 0.75rem;
+  --radius-lg: 0.5rem;
+
+  /* Windows-friendly stack: Inter first if present, then YaHei for Chinese. */
+  --font-sans: Inter, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui,
+    -apple-system, sans-serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  /* 需求 5：界面字重（设置-外观-主题）。只作正文基准；标题等有自己的
+     weight 声明，不会被动连带。 */
+  font-weight: var(--app-font-weight, 400);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Keep code paths readable and copyable. */
+code,
+kbd {
+  font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+  font-size: var(--text-caption);
+}
+
+/* Thin scrollbars: a full-width Windows scrollbar inside a 200px sidebar looks
+   like a rendering bug. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 4px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* The repository wall fills columns from the available width, not from viewport
+   breakpoints: the default 1200px window is narrower than Tailwind's `xl`
+   (1280px), so breakpoint-based column counts left the wall at 2-3 columns with a
+   hole on the right.
+
+   `minmax(0, 1fr)` and the explicit `min-width: 0` on items are both required.
+   Measured: with only `minmax(232px, 1fr)`, a 952px container produced THREE
+   306px columns instead of four 232px ones. The rule was correct - the items were
+   the problem. A grid item's automatic minimum size is its `min-content`, and the
+   cards contain an unbreakable `<code>` (e.g. `09-llm-zoomer`), which raised the
+   floor above 232px and reduced the column count. Allowing the items to shrink
+   makes the text truncate, which is the intended behaviour anyway. */
+.repo-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--skin-grid-min, 14.5rem), 1fr));
+  gap: var(--skin-grid-gap, 1rem);
+}
+/* 固定项页的卡片比项目墙密一档；此前是两处内联 style={{gap:"0.5rem"}}，
+   与 .repo-grid 自己的 gap 打架。 */
+.repo-grid-tight {
+  gap: 0.5rem;
+}
+.repo-grid > * {
+  min-width: 0;
+}
+
+/* ===========================================================================
+   Element registry (开发者模式 / 界面自定义)
+   ===========================================================================
+
+   The registry's overrides arrive as a generated stylesheet keyed on
+   `[data-reg-id]` — see `src/store/customize.ts`. What lives here instead is
+   only the *defaults* those rules override, because a default has to be a
+   declaration in the cascade rather than something the generator repeats for
+   all 90 elements.
+
+   `--reg-max-w` is the honest version of the old `max-w-[1200px]` literal: the
+   content width is now a 档位 the user changes, and the number stays a number
+   rather than being baked into markup.
+   =========================================================================== */
+
+[data-reg-id="view-container"] {
+  max-width: var(--reg-max-w, 75rem);
+}
+
+/* Developer mode: every registered block announces itself, so "click anything
+   to edit it" is discoverable without a legend. Outline rather than border: a
+   border would change the box size and move the layout while editing it. */
+.dev-mode-on [data-reg-id] {
+  outline: 1px dashed color-mix(in oklab, var(--color-primary) 45%, transparent);
+  outline-offset: 1px;
+  cursor: default;
+}
+.dev-mode-on [data-reg-id]:hover {
+  outline-style: solid;
+  outline-color: var(--color-primary);
+  background-color: color-mix(in oklab, var(--color-primary) 6%, transparent);
+}
+
+/* ===========================================================================
+   Motion tokens
+   ===========================================================================
+
+   Before this block existed the app had one duration (`--skin-dur`, consumed by
+   three selectors), no easing token, and the same `cubic-bezier(0.2, 0.8, 0.3, 1)`
+   retyped by hand in four files. Every other enter animation was an inline
+   `style={{ animation: ... }}`, which is why the durations read as 110/120/140/
+   200/220/500 ms across one screen.
+
+   The ladder and the curves are taken from transitions.dev's own stylesheet
+   (read from its live CSS on 2026-10-12: micro 80 / quick 150 / fast 250 /
+   medium 350 / slow 400 / very-slow 500, stagger 40, smooth-out
+   cubic-bezier(0.22, 1, 0.36, 1)) and then re-tuned for a desktop window, where
+   distances are shorter than on a web page: 400/500 ms are collapsed into one
+   450 ms tier, and `--motion-very-slow` is reserved for ambience that never
+   blocks an interaction.
+
+   The asymmetry is the point: entering surfaces get the long, gliding curve,
+   leaving surfaces get half the time and an accelerating curve, so a close never
+   feels like it is dragging. 打开可以稍慢，关闭要干脆.
+   =========================================================================== */
+
+:root {
+  /* A skin's "speed" is ONE multiplier, applied here at the base of the ladder.
+     It used to be applied only to the three derived aliases below, which meant
+     every surface consuming a base token (`duration-[var(--motion-quick)]` and
+     friends — 22 sites migrated in round 15, plus the rules above) kept playing
+     at 150/350/450 ms no matter what the skin asked for. Scaling the ladder makes
+     the claim true for all of them, and the derived aliases become plain names
+     for a rung rather than a second, competing multiplication of the same scale. */
+  --motion-scale: 1;
+  --motion-micro: calc(80ms * var(--motion-scale));
+  --motion-quick: calc(150ms * var(--motion-scale));
+  --motion-fast: calc(250ms * var(--motion-scale));
+  --motion-medium: calc(350ms * var(--motion-scale));
+  --motion-slow: calc(450ms * var(--motion-scale));
+  --motion-very-slow: calc(600ms * var(--motion-scale));
+  --motion-stagger: calc(40ms * var(--motion-scale));
+
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  /* The two curves that overshoot are reserved: a badge or a checkmark may pop,
+     a panel or a page may not. */
+  --ease-pop: cubic-bezier(0.34, 1.36, 0.64, 1);
+  --ease-spring: cubic-bezier(0.14, 2.56, 0.94, 1);
+
+  /* The two directions of the same gesture, as plain names for the rungs above.
+     Entering surfaces get the long gliding curve, leaving surfaces half the time
+     with an accelerating curve — the *scale* is already baked into the ladder, so
+     multiplying again here would make a skin's speed apply twice. */
+  --motion-enter: var(--motion-fast);
+  --motion-exit: var(--motion-quick);
+  --motion-state: var(--motion-quick);
+  /* Kept for the three selectors that already consume it (skin-card/ctl/nav). */
+  --skin-dur: var(--motion-enter);
+
+  /* Blur used by scrims and the frosted strip. Tokenised because three files
+     each wrote their own `backdrop-blur-[1px]`. */
+  --blur-scrim: 3px;
+
+  /* Elevation for things that leave the page plane. A dialog used
+     rgba(0,0,0,0.8) in both themes, which on white reads as a hole cut in the
+     page rather than something floating above it. */
+  --shadow-menu: 0 18px 48px -12px rgb(0 0 0 / 0.55);
+  --shadow-overlay: 0 24px 64px -16px rgb(0 0 0 / 0.6);
+  --shadow-drag: 0 22px 44px -12px rgb(0 0 0 / 0.62);
+  /* 状态栏贴着窗口底边，阴影只能朝上打——方向与上面三个都不同，所以单列一档。 */
+  --shadow-strip: 0 -1px 2px rgb(0 0 0 / 0.25);
+
+  /* Stacking ladder. There was none: nine one-off `z-50`/`z-[70]`/`zIndex:45`
+     values coexisted, and the dev Inspector shared the dialogs' `z-50` while
+     rendering *after* them, so it painted over an open modal and its controls
+     stayed clickable through the scrim. These rungs are the only sanctioned
+     stacking values; a dialog's scrim (`--z-modal`) now sits above the Inspector
+     (`--z-inspector`), so a modal always wins regardless of DOM order.
+     Higher number = closer to the user. Popovers/menus that must float over a
+     modal (a font picker or context menu opened from within one) go above it;
+     everything anchored to ordinary page content stays below. */
+  --z-panel: 10;      /* sticky/inline raised surfaces inside a page */
+  --z-layer: 20;      /* floating bars & drag overlays over the page plane */
+  --z-inspector: 30;  /* developer Inspector + layout handles — deliberately BELOW the modal scrim */
+  --z-menu: 40;       /* dropdown menus / listboxes anchored to a control */
+  --z-modal: 50;      /* DialogShell scrim — one dialog layer */
+  --z-toast: 60;      /* toast host — must be readable over an open dialog */
+  --z-popover: 70;    /* ephemeral popovers opened from anywhere, incl. inside a modal */
+  --z-palette: 80;    /* command palette, the top-most surface (integrator-owned sites) */
+}
+
+.elevation-menu {
+  box-shadow: var(--shadow-menu);
+}
+/* For surfaces anchored to the bottom edge of the window (the status strip's
+   panels), where the light has to fall downward or the panel reads as detached
+   from the thing that opened it. */
+.elevation-panel-up {
+  box-shadow: 0 -12px 32px -8px rgb(0 0 0 / 0.55);
+}
+[data-theme="light"] .elevation-panel-up {
+  box-shadow: 0 -12px 28px -10px rgb(0 0 0 / 0.18);
+}
+.elevation-overlay {
+  box-shadow: var(--shadow-overlay);
+}
+.elevation-drag {
+  box-shadow: var(--shadow-drag);
+}
+
+/* Every control the user can act on answers back, in one place rather than per
+   component. Declared property-by-property: `transition: all` also animates
+   width/height/position, i.e. layout, which is the classic source of jank in a
+   grid of cards. */
+:where(button, a, input, select, textarea, summary, [role="menuitem"], [role="option"],
+       [role="tab"], .skin-ctl, .skin-card, .skin-nav, .row-setting):not(:disabled) {
+  transition-property: color, background-color, border-color, outline-color,
+    box-shadow, opacity, transform, backdrop-filter;
+  transition-duration: var(--motion-state);
+  transition-timing-function: var(--ease-out);
+}
+
+/* 小交互：按下去要有反馈。Cards opt out here because their transform is owned by
+   the hover lift below — two rules writing `transform` on the same element is how
+   a card ends up sitting 4 px off until you click it. */
+:where(button:not(.skin-card), .skin-ctl):active:not(:disabled) {
+  transform: scale(0.97);
+  transition-duration: var(--motion-micro);
+}
+
+/* --- layers: 出现 / 过渡 / 消失 for every overlay ------------------------
+   An overlay used to appear with a keyframe and vanish by unmounting, so menus
+   and popovers had no exit at all. `useLayerExit` keeps the element mounted for
+   one exit-duration and flips `data-state`, which is what these two rules read.
+   The surface, not the caller, decides how it leaves.
+   ----------------------------------------------------------------------- */
+[data-layer] {
+  animation: layerIn var(--motion-enter) var(--ease-out) both;
+}
+[data-layer][data-state="closed"] {
+  animation: layerOut var(--motion-exit) var(--ease-in) both;
+}
+@keyframes layerIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes layerOut {
+  from {
+    opacity: 1;
+    transform: none;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.98);
+  }
+}
+
+/* A backdrop must not scale — only fade, or the whole window appears to breathe
+   behind the dialog. */
+[data-layer="scrim"] {
+  animation: scrimIn var(--motion-enter) var(--ease-out) both;
+}
+[data-layer="scrim"][data-state="closed"] {
+  animation: scrimOut var(--motion-exit) var(--ease-in) both;
+}
+@keyframes scrimIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes scrimOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+/* View switch: a short fade plus a rise sized in rem so it survives 尺度 changes.
+   Replaced the hand-typed 140ms/ease-out and the 4px literal it used. */
+@keyframes viewIn {
+  from {
+    opacity: 0;
+    transform: translateY(0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.app-view-enter {
+  animation: viewIn var(--motion-medium) var(--ease-out) both;
+}
+
+/* Disclosure rows: 高级选项 and each 界面分组 already open with a grid-template-rows
+   morph; this puts that morph on the shared ladder instead of a per-site
+   `duration-200 ease-out`, and gives the closing direction the shorter,
+   accelerating half of the pair. */
+.disclosure {
+  transition-property: grid-template-rows, opacity;
+  transition-duration: var(--motion-enter), var(--motion-state);
+  transition-timing-function: var(--ease-out);
+}
+
+/* --- 状态过渡的统一出口 --------------------------------------------------
+   `transition-all` was written on 24 controls. It animates *layout* too —
+   width/height/position — which is why a pill that changed its label also slid
+   its neighbours. This class names the six properties that actually change on
+   hover/press/select, and takes its tempo from the ladder so skins still govern
+   it. */
+.t-state {
+  transition-property: color, background-color, border-color, box-shadow, opacity, transform;
+  transition-duration: var(--motion-state);
+  transition-timing-function: var(--ease-out);
+}
+
+/* --- focus-visible: one language everywhere -------------------------------
+   The command palette made keyboard navigation a first-class path, so a focus
+   ring that appears on some controls and not others stops being a cosmetic
+   inconsistency and becomes an accessibility defect. Buttons and links get the
+   ring from the shell; components that already declare a Tailwind
+   `focus-visible:ring-*` keep theirs (same colour, same width). */
+:where(button, a, input, select, textarea, summary, [role="menuitem"], [role="option"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+  border-radius: inherit;
+}
+[data-theme="light"] :where(button, a, input, select, textarea, summary, [role="menuitem"], [role="option"], [role="tab"], [tabindex]:not([tabindex="-1"])):focus-visible {
+  outline-color: var(--b-600);
+}
+
+/* --- list entrance: 错开进场 ---------------------------------------------
+   Only the first batch. `ProjectsView` clears `data-entered` once the grid has
+   painted, because a later card added by a filter change must be animated by
+   auto-animate instead — two engines writing the same transform is how a card
+   ends up in two places at once.
+   ----------------------------------------------------------------------- */
+[data-entered="false"] .motion-stagger > * {
+  animation: itemIn var(--motion-enter) var(--ease-out) both;
+}
+/* The stagger is written as nth-child rules rather than an inline `--i` per card
+   so the entrance costs the card component no prop and no render work. It stops
+   at twelve on purpose: a 40 ms tail across a sixty-card wall reads as a queue,
+   not as an entrance. */
+[data-entered="false"] .motion-stagger > *:nth-child(2) { animation-delay: calc(var(--motion-stagger) * 1); }
+[data-entered="false"] .motion-stagger > *:nth-child(3) { animation-delay: calc(var(--motion-stagger) * 2); }
+[data-entered="false"] .motion-stagger > *:nth-child(4) { animation-delay: calc(var(--motion-stagger) * 3); }
+[data-entered="false"] .motion-stagger > *:nth-child(5) { animation-delay: calc(var(--motion-stagger) * 4); }
+[data-entered="false"] .motion-stagger > *:nth-child(6) { animation-delay: calc(var(--motion-stagger) * 5); }
+[data-entered="false"] .motion-stagger > *:nth-child(7) { animation-delay: calc(var(--motion-stagger) * 6); }
+[data-entered="false"] .motion-stagger > *:nth-child(8) { animation-delay: calc(var(--motion-stagger) * 7); }
+[data-entered="false"] .motion-stagger > *:nth-child(9) { animation-delay: calc(var(--motion-stagger) * 8); }
+[data-entered="false"] .motion-stagger > *:nth-child(10) { animation-delay: calc(var(--motion-stagger) * 9); }
+[data-entered="false"] .motion-stagger > *:nth-child(11) { animation-delay: calc(var(--motion-stagger) * 10); }
+[data-entered="false"] .motion-stagger > *:nth-child(12) { animation-delay: calc(var(--motion-stagger) * 11); }
+@keyframes itemIn {
+  from {
+    opacity: 0;
+    transform: translateY(0.5rem) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Indeterminate network work: a band that travels, so "still running" is legible
+   without a percentage the tool never printed. This keyframe existed but had no
+   consumer — it is wired to `.motion-indeterminate` now. */
+@keyframes sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(320%);
+  }
+}
+.motion-indeterminate {
+  position: relative;
+  overflow: hidden;
+}
+.motion-indeterminate::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-primary) 45%, transparent),
+    transparent
+  );
+  animation: sweep calc(var(--motion-slow) * 2) var(--ease-in-out) infinite;
+}
+
+/* The deep-link marker: 设置 scrolls to a section and flashes it, because
+   scrolling alone is not enough to notice a change of position in a long page. */
+@keyframes flash {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+  30% {
+    box-shadow: 0 0 0 2px var(--color-ring);
+  }
+}
+.section-flash {
+  animation: flash var(--motion-very-slow) var(--ease-in-out) 2;
+  border-radius: var(--skin-radius-card);
+}
+
+/* README 预览在添加页展开。这段内联 animation 曾引用一个全库不存在的
+   `rowIn`——动画静默无效。补上 keyframes 与工具类，时长/缓动走 --motion-* 阶梯，
+   底部的减弱动画开关因此也能管到它。 */
+@keyframes rowIn {
+  from {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.motion-row-in {
+  animation: rowIn var(--motion-enter) var(--ease-out) both;
+}
+
+/* Download progress's two ambient loops, moved here from an inline `<style>` in
+   DownloadProgress.tsx (round-11 D6). They used to declare their own fixed
+   1.5s / 2.6s durations and their own `@media (prefers-reduced-motion)` query,
+   so the in-app 减弱动画 switch only reached them through the global
+   `[data-motion="reduced"] *` rule while a second, OS-only rule lived inside the
+   component — two sources of truth for one behaviour. Now the durations come off
+   the `--motion-*` ladder (the very-slow tier is the one reserved for ambience
+   that never blocks an interaction) scaled to keep the original tempo, and the
+   single reduced-motion switch at the bottom of this file — plus the OS block —
+   zeroes them, so 减弱动画 actually stops the sweep and the stall pulse.
+
+   The base resting state is kept on purpose: `dlSweep` ends off-track (-65%), so
+   the element's *base* background-position is the centred band. When the switch
+   stops the animation the bar holds that band — a calm, filled bar — rather than
+   an empty track that would read as "nothing happening". */
+@keyframes dlSweep {
+  from {
+    background-position: 165% 0;
+  }
+  to {
+    background-position: -65% 0;
+  }
+}
+.dl-sweep {
+  background-image: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-primary) 85%, transparent) 45%,
+    color-mix(in oklab, var(--color-primary) 85%, transparent) 55%,
+    transparent
+  );
+  background-size: 55% 100%;
+  background-repeat: no-repeat;
+  background-position: 50% 0;
+  animation: dlSweep calc(var(--motion-very-slow) * 2.5) linear infinite;
+}
+@keyframes dlStall {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+.dl-stall {
+  animation: dlStall calc(var(--motion-very-slow) * 4.33) ease-in-out infinite;
+}
+
+/* --- scrollbars -----------------------------------------------------------
+   Off by default per the report ("右侧的滚动条默认不需要，可以自定义选择").
+
+   Two things have to be true at once and they pull against each other: hiding
+   the scrollbar must not change the layout, and a permanently reserved slot is
+   itself a visible blank strip down the right-hand edge. The resolution is per
+   mode — see the two rules below. */
+/* 需求 6：「显示滚动条」关不掉的根因 —— 全局用标准属性 scrollbar-width/
+   scrollbar-color 画细滚动条后，Chromium 121+ 在 scrollbar-width 非 auto 时
+   会忽略 ::-webkit-scrollbar 伪元素样式，所以旧的 webkit 关态规则全部失效。
+
+   改过两轮。第一轮把 thumb 涂成透明、悬停再显现：滚动条确实看不见了，但
+   `scrollbar-gutter: stable` 依然为它保留槽位，于是窗口右侧出现一条恒定
+   空白 —— 这正是「整体窗口右侧存在空白区域」的来源，它不是没关掉，而是
+   关掉的方式留了一个看不见的坑。
+
+   第二轮改成 `scrollbar-width: none`：滚动条占据的宽度本身就是 0，`stable`
+   为它保留的槽位也随之为 0。既没有空白，也不会因为滚动条出现/消失而位移，
+   因为在这个模式下滚动条永远不出现。代价是失去了「悬停显现」—— 那份可见性
+   必须以预留槽位为前提，而预留槽位正是问题本身。想看得见滚动条就用「开」。 */
+[data-scrollbar="off"] * {
+  scrollbar-width: none;
+}
+/* Legacy fallback for engines that still honour the webkit pseudo-elements
+   (the standard property above wins on Chromium 121+). */
+[data-scrollbar="off"] ::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+/* The gutter must live on the element that actually scrolls. It used to be on
+   `html`, but the root never scrolls (the shell is `h-screen overflow-hidden`;
+   `.app-main-pad` inside the view panel is the real scroller), so the html
+   gutter only produced a permanent blank strip at the window's right edge,
+   while the page content still shifted when the panel's scrollbar appeared
+   and disappeared between views. The gutter declaration itself sits in the
+   `.app-main-pad` rule below, next to the padding it protects. */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+}
+
+/* ===========================================================================
+   Skin preview
+   ===========================================================================
+
+   Three switchable visual directions, exposed in development and design-preview
+   builds. Exactly the same markup renders all three, so any difference you see
+   is a difference in the design language, not in the content.
+
+   What a skin is allowed to change (fixed on 2026-10-12, 需求 1): **density
+   only** — radius, elevation vs. border, motion duration, card grid rhythm,
+   label typography, title weight, hover lift, cover filter. It no longer touches
+   colour: the three skins used to carry three different base hues (warm 60 /
+   cold 264 / violet 292) and three different accents, which is what made the
+   palette impossible to state in one sentence. Colour now comes from the theme
+   (白/黑 ladder) plus blue, and the only large colour left in the app is the
+   repository covers.
+
+   Why the axes stay aggressive anyway: the first version varied only radius and
+   shadow, and the report was "样式观感差距不大" — switching barely changed the
+   impression, which makes the comparison useless for deciding anything.
+
+   Why this exists instead of static mockups: the client could not name a target
+   style and rejected all three named references (Linear / GitHub Desktop / Arc).
+   Preference converges fastest by switching between real, polarised options in
+   the running app — motion and hover are half the judgement, and mockups cannot
+   show those.
+   =========================================================================== */
+
+:root {
+  --skin-radius-card: 0.75rem;
+  --skin-radius-ctl: 0.5rem;
+  --skin-shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+  --skin-shadow-hover: 0 12px 32px -8px rgb(0 0 0 / 0.65);
+  --skin-border-width: 1px;
+  --skin-title-weight: 500;
+  /* Sizes come off the type ladder and off rem, not their own px numbers: that is what lets 尺度 and
+     界面字号 move the page instead of only its text. */
+  --skin-title-size: var(--text-view);
+  --skin-title-tracking: 0;
+  --skin-label-transform: none;
+  --skin-label-tracking: 0;
+  --skin-grid-min: 14.5rem;
+  --skin-grid-gap: 1rem;
+  --skin-hover-lift: -2px;
+  --skin-cover-filter: none;
+  --skin-panel-image: none;
+}
+
+/* A — Soft. Consumer, friendly, generous radii, diffuse shadows, big cards (two
+   per row at the default window width), the slowest motion of the three. The
+   layout is the airiest because "visual first" only works if the covers are big
+   enough to carry the screen. */
+[data-skin="soft"] {
+  --skin-radius-card: 1.125rem;
+  --skin-radius-ctl: 0.6875rem;
+  --skin-shadow-card: 0 3px 12px -3px rgb(0 0 0 / 0.45);
+  --skin-shadow-hover: 0 22px 48px -12px rgb(0 0 0 / 0.72);
+  --skin-title-weight: 500;
+  --skin-title-size: var(--text-view);
+  --skin-title-tracking: 0;
+  --motion-scale: 1.04;
+  --skin-grid-min: 23.75rem;
+  --skin-grid-gap: 1.25rem;
+  --skin-hover-lift: -4px;
+  --skin-cover-filter: saturate(1.05);
+}
+
+/* B — Crisp. Precise and technical: square corners, **borders instead of
+   shadows**, small dense cards, uppercase tracked labels, and the fastest motion
+   of the three. Elevation is drawn, not lit, so nothing here depends on hue. */
+[data-skin="crisp"] {
+  --skin-radius-card: 0.125rem;
+  --skin-radius-ctl: 0.125rem;
+  --skin-shadow-card: none;
+  --skin-shadow-hover: 0 0 0 1px var(--color-primary);
+  --skin-border-width: 1px;
+  --skin-title-weight: 600;
+  --skin-title-size: var(--text-view);
+  --skin-title-tracking: -0.01em;
+  --skin-label-transform: uppercase;
+  --skin-label-tracking: 0.09em;
+  --motion-scale: 0.44;
+  --skin-grid-min: 11.75rem;
+  --skin-grid-gap: 0.5rem;
+  --skin-hover-lift: 0;
+  --skin-cover-filter: saturate(0.72) contrast(1.08);
+}
+
+/* C — Bold. High contrast and high tension: heavy titles, glowing shadows,
+   medium cards, slow motion, and a panel wash that reads as lit from above. The
+   wash is blue — the only hue chrome may carry — not the violet it used to be. */
+[data-skin="bold"] {
+  --skin-radius-card: 0.75rem;
+  --skin-radius-ctl: 0.5rem;
+  --skin-shadow-card: 0 4px 14px -4px rgb(0 0 0 / 0.6);
+  --skin-shadow-hover: 0 22px 60px -14px oklch(0.55 0.18 258 / 0.5);
+  --skin-title-weight: 800;
+  /* Bold reads heavier by stepping *within* the ladder, not by jumping a whole
+     step: `.skin-title` is unlayered, so it outranks any text-* utility on the
+     same element, and pointing it at --text-brand inflated the title bar's own
+     label to 22px as well. */
+  --skin-title-size: calc(var(--text-view) * 1.15);
+  --skin-title-tracking: -0.015em;
+  --motion-scale: 0.72;
+  --skin-grid-min: 15.25rem;
+  --skin-grid-gap: 1rem;
+  --skin-hover-lift: -6px;
+  --skin-cover-filter: saturate(1.25) contrast(1.12);
+  --skin-panel-image: linear-gradient(
+    160deg,
+    oklch(0.55 0.18 258 / 0.22),
+    transparent 60%
+  );
+}
+
+/* Apply the skin variables to the primitives that use them. */
+.skin-card {
+  border-radius: var(--skin-radius-card);
+  border-width: var(--skin-border-width);
+  box-shadow: var(--skin-shadow-card);
+  transition-duration: var(--skin-dur);
+}
+.skin-card:hover {
+  box-shadow: var(--skin-shadow-hover);
+  transform: translateY(var(--skin-hover-lift));
+}
+/* Two classes beat one: `.skin-card` is declared after the elevation helpers, so
+   without this the dragged card kept its resting shadow and the lift read as flat. */
+.skin-card.elevation-drag {
+  box-shadow: var(--shadow-drag);
+}
+.skin-cover {
+  filter: var(--skin-cover-filter);
+}
+.skin-ctl {
+  border-radius: var(--skin-radius-ctl);
+  transition-duration: var(--skin-dur);
+}
+/* 控件家族的内层：分段控件的滑块、下拉面板里的选项行、输入框内的小按钮。
+   半径从控件半径推出来，所以「直角皮肤」下内层也是直角，`rounded-full`
+   不会绕过皮肤设置（round 9 审计：工具栏曾经同时存在胶囊与直角两种形状）。 */
+.skin-ctl-inner {
+  border-radius: max(0.125rem, calc(var(--skin-radius-ctl) - 2px));
+}
+/* 浮层面板：下拉面板、右键菜单、选择器共用一个形状与阴影规格。
+   半径比控件大 4px（浮层比它所依附的控件更「软」一档），阴影分两层：
+   一层贴边描出轮廓，一层远投说明它悬在内容之上。 */
+.skin-pop {
+  border-radius: calc(var(--skin-radius-ctl) + 0.25rem);
+  box-shadow:
+    0 1px 2px rgb(0 0 0 / 0.2),
+    0 16px 40px -12px rgb(0 0 0 / 0.55);
+}
+.skin-title {
+  font-weight: var(--skin-title-weight);
+  font-size: var(--skin-title-size);
+  letter-spacing: var(--skin-title-tracking);
+}
+/* The page title is the one place that is allowed to jump a step: it carries the
+   尺度 and the hierarchy the brief asked for, and it opts in by class rather than
+   inheriting a skin's temper. */
+.page-title {
+  font-size: var(--text-brand);
+  font-weight: var(--skin-title-weight);
+  letter-spacing: var(--skin-title-tracking);
+  line-height: var(--text-brand--line-height);
+}
+.skin-label {
+  text-transform: var(--skin-label-transform);
+  letter-spacing: var(--skin-label-tracking);
+}
+.skin-panel {
+  border-radius: var(--skin-radius-card);
+  border-width: var(--skin-border-width);
+  background-image: var(--skin-panel-image);
+}
+.skin-nav {
+  border-radius: var(--skin-radius-ctl);
+  transition-duration: var(--skin-dur);
+  position: relative;
+}
+/* Active navigation. Soft: a filled pill. Crisp: a flat row with a solid accent
+   bar on the left. Bold: a filled accent pill with inverted text. Three visibly
+   different treatments from the same markup. */
+[data-skin="crisp"] .skin-nav[data-active="true"] {
+  background-color: transparent;
+  box-shadow: inset 2px 0 0 0 var(--color-primary);
+}
+[data-skin="bold"] .skin-nav[data-active="true"] {
+  background-color: var(--color-primary);
+  color: var(--color-primary-foreground);
+}
+[data-skin="bold"] .skin-nav[data-active="true"] .skin-nav-icon {
+  color: var(--color-primary-foreground);
+}
+
+/* ===========================================================================
+   Appearance preferences (外观 view)
+   ===========================================================================
+
+   Everything below is driven by data attributes on <html>, set from
+   `src/store/appearance.ts`. The skin blocks above keep working unchanged: they
+   come earlier in this file, so the light-theme block wins for surfaces while
+   each skin keeps its radius, shadows and accent.
+
+   Density only scales the two things it honestly controls: page padding and
+   the wall's grid gap.
+   =========================================================================== */
+
+:root {
+  --app-pad-x: 1.5rem;
+  --app-pad-y: 1.25rem;
+}
+
+.app-main-pad {
+  padding: var(--app-pad-y) var(--app-pad-x);
+  /* Reserve the scrollbar slot on the scroller itself — see the scrollbar
+     section above for why this is here and not on `html`. */
+  scrollbar-gutter: stable;
+}
+
+/* With the scrollbar switched off there is no scrollbar to reserve room for, so
+   the gutter is released explicitly rather than left to how each engine combines
+   `scrollbar-width: none` with `stable` — Chromium has historically been
+   inconsistent about whether the gutter survives a zero-width scrollbar. No
+   gutter and no scrollbar means no reflow either, because in this mode the
+   scrollbar never appears. */
+[data-scrollbar="off"] .app-main-pad {
+  scrollbar-gutter: auto;
+}
+
+[data-density="compact"] {
+  --app-pad-x: 1rem;
+  --app-pad-y: 0.875rem;
+  --skin-grid-gap: 0.5rem;
+}
+
+[data-density="relaxed"] {
+  --app-pad-x: 2rem;
+  --app-pad-y: 1.75rem;
+  --skin-grid-gap: 1.5rem;
+}
+
+/* --- 尺度：文字与控件的体量，与「密度」是两条轴 ----------------------------
+   密度 only ever moved page padding and the grid gap, so turning it down left the
+   text small while squeezing the air out — the opposite of what "缺失磅礴宏大的
+   观感" asks for. 尺度 switches the ladder itself: 舒展 (default) is the six-step
+   ladder in `@theme`, 紧凑 restores the pre-round-10 caption 11 / body 13 / view 15
+   sizes for anyone who wants the old density back. The display and stat steps
+   shrink with it, so the hierarchy survives in both. */
+[data-scale="compact"] {
+  --text-caption: 0.6875rem;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.55;
+  --text-view: 0.9375rem;
+  --text-brand: 1.25rem;
+  --text-stat: 1.0625rem;
+  --text-display: 1.375rem;
+  --text-display-lg: 1.875rem;
+}
+
+/* Hide explanatory/hint text globally. Elements opt in with `app-desc`. */
+[data-hide-desc="true"] .app-desc {
+  display: none !important;
+}
+
+/* --- cover images ----------------------------------------------------------
+   Turning covers off is a network decision, not just a visual one: `RepoTile`
+   checks the same flag in JS and skips the `fetch_cover` call entirely, so a
+   twenty-repository wall stops issuing twenty requests on open. This rule is
+   the belt to that braces - a cover already in flight still must not appear. */
+[data-covers="off"] .repo-cover {
+  display: none !important;
+}
+
+/* Cover surfaces. These were literals (rgba(255,255,255,.22) sheen, from-black/55
+   scrim, bg-black/60 chip) which meant the light theme inherited a dark-theme
+   composition: a white glare on a pale card and a black band under black text. */
+.cover-sheen {
+  background: radial-gradient(
+    120% 90% at 20% 0%,
+    color-mix(in oklab, white 22%, transparent),
+    transparent 55%
+  );
+  opacity: 0.6;
+}
+.cover-scrim {
+  height: 2.5rem;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.55), transparent);
+}
+.cover-chip {
+  background: rgb(0 0 0 / 0.6);
+}
+.cover-blur {
+  background-size: cover;
+  background-position: var(--cover-focus, 50% 50%);
+  filter: blur(14px) saturate(1.1);
+  transform: scale(1.12);
+  opacity: 0.9;
+}
+.cover-loading {
+  background: color-mix(in oklab, var(--color-primary) 12%, transparent);
+}
+/* Light theme: the cover image itself is still usually dark, so the scrim stays,
+   but it is softened and the sheen no longer adds a second white glare. */
+[data-theme="light"] .cover-scrim {
+  background: linear-gradient(to top, rgb(0 0 0 / 0.42), transparent);
+}
+[data-theme="light"] .cover-sheen {
+  opacity: 0.3;
+}
+
+/* --- motion ----------------------------------------------------------------
+   The user-facing switch, alongside the OS-level `prefers-reduced-motion` block
+   above. Hover lift is dropped too: a card that moves under the pointer is the
+   part people mean by "动画太多". */
+[data-motion="reduced"] *,
+[data-motion="reduced"] *::before,
+[data-motion="reduced"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  /* The delays have to go too. The wall's entrance staggers children with
+     `animation-delay` and `fill-mode: both`, so zeroing only the duration left the
+     delayed cards sitting in their `from` state — invisible — for up to 440ms. */
+  animation-delay: 0ms !important;
+  transition-delay: 0ms !important;
+}
+[data-motion="reduced"] .skin-card:hover {
+  transform: none;
+}
+
+/* ===========================================================================
+   氛围层 (需求 5) — 无 / 静态 / 动态
+   ===========================================================================
+
+   Pages were flat: one fill, one border, nothing behind the cards. The brief
+   asked for 线条与图案 without 割裂观感, so the layer is built from the *neutral*
+   ramp only (currentColor at 2-4%), never from hue — hue stays reserved for blue
+   and for the covers, per the colour manifesto at the top of this file.
+
+   Three tiers, because a texture you cannot turn off is a texture people resent:
+     none    — nothing
+     static  — the grid + the page-title rule (default)
+     dynamic — static plus a 90s drift and a light sweep on card entrance
+
+   `prefers-reduced-motion` and the in-app 减弱动画 switch collapse dynamic to
+   static; they already zero every duration elsewhere in this file.
+   =========================================================================== */
+
+[data-ambience="static"] .app-main-pad,
+[data-ambience="dynamic"] .app-main-pad {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, currentColor 3%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, currentColor 3%, transparent) 1px, transparent 1px);
+  background-size: 3.5rem 3.5rem;
+  background-position: -1px -1px;
+}
+
+/* A short accent rule under the page title: the one place the layer is allowed
+   to use hue, and it is the same blue as every other primary. */
+[data-ambience="static"] .page-title,
+[data-ambience="dynamic"] .page-title {
+  position: relative;
+  padding-bottom: 0.125rem;
+}
+[data-ambience="static"] .page-title::after,
+[data-ambience="dynamic"] .page-title::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  bottom: -0.25rem;
+  width: 2.25rem;
+  height: 2px;
+  border-radius: 2px;
+  background: color-mix(in oklab, var(--color-primary) 70%, transparent);
+}
+
+[data-ambience="dynamic"] .app-main-pad {
+  animation: ambience-drift 90s linear infinite;
+}
+@keyframes ambience-drift {
+  from {
+    background-position: -1px -1px;
+  }
+  to {
+    background-position: calc(3.5rem - 1px) calc(3.5rem - 1px);
+  }
+}
+/* A card catching light as it arrives — entrance only, never looping, so an idle
+   wall costs the compositor nothing. */
+[data-ambience="dynamic"] .motion-stagger > *::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    115deg,
+    transparent 35%,
+    color-mix(in oklab, var(--color-primary) 14%, transparent) 50%,
+    transparent 65%
+  );
+  transform: translateX(-120%);
+  animation: card-sheen calc(var(--motion-slow) * 1.6) var(--ease-out) both;
+}
+@keyframes card-sheen {
+  to {
+    transform: translateX(120%);
+  }
+}
+[data-motion="reduced"] [data-ambience="dynamic"] .app-main-pad,
+[data-motion="reduced"] [data-ambience="dynamic"] .motion-stagger > *::after {
+  animation: none;
+}
+[data-motion="reduced"] [data-ambience="dynamic"] .motion-stagger > *::after {
+  display: none;
+}
+
+/* --- project wall columns ---------------------------------------------------
+   `auto` keeps the content-driven `auto-fill` behaviour, which is what the
+   default 1200px window was tuned for. A fixed count overrides the skin's
+   minimum card width, because "two per row" must mean two per row. */
+[data-grid-cols="2"] .repo-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+[data-grid-cols="3"] .repo-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+[data-grid-cols="4"] .repo-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+[data-grid-cols="5"] .repo-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+[data-grid-cols="6"] .repo-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+
+/* --- repository path --------------------------------------------------------
+   Off by default: it is the least interesting thing about a card until someone
+   is hunting for a folder. */
+[data-repo-path="off"] .repo-path {
+  display: none;
+}
+
+/* --- light theme -----------------------------------------------------------
+   The same ladder read from the other end, declared entirely in ramp tokens:
+   no colour literal appears in this block, so a surface can only move if the
+   ramp itself moves. Declared after the skin blocks (which no longer carry
+   colour), and it is the default the app now opens in.
+
+   Measured: ink n-900 on white 19.3:1, secondary text n-600 on white 6.02:1,
+   blue b-600 with a white label 4.74:1 (AA), b-600 as a focus ring against the
+   n-50 page 4.42:1 (>=3:1 for non-text). Status steps are darker than the dark
+   theme's because they sit on white. */
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-strip: var(--n-150);
+  --color-background: var(--n-50);
+  --color-sidebar: var(--n-100);
+  --color-card: var(--n-0);
+  /* In the light theme a popover cannot be *greyer* than the page it floats over
+     and still read as raised, so `raised` shares paper-white with `card` and
+     earns its step from the border and `--shadow-menu` instead. */
+  --color-raised: var(--n-0);
+
+  --color-foreground: var(--n-900);
+  --color-card-foreground: var(--n-900);
+
+  --color-muted: var(--n-100);
+  --color-muted-foreground: var(--n-600);
+
+  --color-border: var(--n-250);
+  --color-border-weak: var(--n-150);
+  --color-input: var(--n-300);
+
+  --color-accent: var(--n-100);
+  --color-accent-foreground: var(--n-900);
+
+  --color-primary: var(--b-600);
+  --color-primary-foreground: var(--n-0);
+  --color-ring: var(--b-600);
+
+  --color-success: oklch(0.53 0.135 155);
+  --color-warning: oklch(0.55 0.115 75);
+  --color-danger: oklch(0.55 0.19 25);
+  /* b-700, not b-600: info is text (links/status), and b-600 measured 4.42:1 on
+     the n-50 page — below AA 4.5. b-600 remains the focus ring and primary,
+     where the requirement is 3:1 and 4.5 with a white label respectively. */
+  --color-info: var(--b-700);
+
+  /* Shadows that read on white instead of on near-black. */
+  --skin-shadow-card: 0 1px 3px rgb(0 0 0 / 0.10);
+  --skin-shadow-hover: 0 10px 28px -10px rgb(0 0 0 / 0.22);
+  --shadow-menu: 0 18px 40px -14px rgb(0 0 0 / 0.2);
+  --shadow-overlay: 0 24px 56px -16px rgb(0 0 0 / 0.24);
+  --shadow-drag: 0 18px 34px -12px rgb(0 0 0 / 0.22);
+  --shadow-strip: 0 -1px 2px rgb(0 0 0 / 0.12);
+  --skin-panel-image: none;
+}
+
+[data-theme="light"][data-skin="soft"] {
+  --skin-shadow-card: 0 2px 10px -2px rgb(0 0 0 / 0.10);
+  --skin-shadow-hover: 0 18px 40px -14px rgb(0 0 0 / 0.22);
+}
+
+[data-theme="light"][data-skin="bold"] {
+  --skin-shadow-card: 0 2px 10px -2px rgb(0 0 0 / 0.12);
+  --skin-shadow-hover: 0 18px 44px -14px oklch(0.5 0.185 258 / 0.28);
+}
+
+/* Native controls (select/option) in light mode. */
+[data-theme="light"] select,
+[data-theme="light"] option {
+  color: var(--color-foreground);
+  background-color: var(--color-background);
+}

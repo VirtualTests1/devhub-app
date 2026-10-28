@@ -1,0 +1,86 @@
+{
+  "@tauri-apps/api": {
+    "current": "2.12.1",
+    "latest": "2.12.4",
+    "wanted": "2.12.1",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  },
+  "@tauri-apps/cli": {
+    "current": "2.12.1",
+    "latest": "2.12.3",
+    "wanted": "2.12.1",
+    "isDeprecated": false,
+    "dependencyType": "devDependencies"
+  },
+  "@tauri-apps/plugin-dialog": {
+    "current": "2.8.1",
+    "latest": "2.8.3",
+    "wanted": "2.8.1",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  },
+  "@tauri-apps/plugin-opener": {
+    "current": "2.7.0",
+    "latest": "2.7.2",
+    "wanted": "2.7.0",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  },
+  "@vitejs/plugin-react": {
+    "current": "6.1.1",
+    "latest": "6.1.2",
+    "wanted": "6.1.1",
+    "isDeprecated": false,
+    "dependencyType": "devDependencies"
+  },
+  "react": {
+    "current": "19.3.0",
+    "latest": "19.3.1",
+    "wanted": "19.3.0",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  },
+  "react-dom": {
+    "current": "19.3.0",
+    "latest": "19.3.1",
+    "wanted": "19.3.0",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  },
+  "vite": {
+    "current": "8.3.2",
+    "latest": "8.3.4",
+    "wanted": "8.3.2",
+    "isDeprecated": false,
+    "dependencyType": "devDependencies"
+  },
+  "lucide-react": {
+    "current": "1.49.0",
+    "latest": "1.59.0",
+    "wanted": "1.49.0",
+    "isDeprecated": false,
+    "dependencyType": "dependencies"
+  },
+  "eslint": {
+    "current": "9.39.4",
+    "latest": "10.13.0",
+    "wanted": "9.39.4",
+    "isDeprecated": false,
+    "dependencyType": "devDependencies"
+  },
+  "eslint-plugin-react-hooks": {
+    "current": "5.2.0",
+    "latest": "7.1.1",
+    "wanted": "5.2.0",
+    "isDeprecated": false,
+    "dependencyType": "devDependencies"
+  },
+  "typescript": {
+    "current": "6.0.3",
+    "latest": "7.0.2",
+    "wanted": "6.0.3",
+    "isDeprecated": false,
+    "dependencyType": "devDependencies"
+  }
+}

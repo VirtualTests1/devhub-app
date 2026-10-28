@@ -1,0 +1,124 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# TypeScript incremental build caches (tsconfig.tsbuildinfo, plus the
+# tsconfig.tests/node variants). Round 17 saw one of these at the repo root and
+# could not name the writer: none of the checked-in tsconfigs set `incremental`
+# yet. Round 18 (r18-o3) then enabled `incremental` in all three *on purpose* —
+# that is what writes them now, as `pnpm gate` / `pnpm build` fingerprints.
+# Machine-local, never repository content. Ignored by pattern, so a renamed
+# config or a hand-run `tsc --incremental` cannot reintroduce the leak.
+*.tsbuildinfo
+
+# Verification screenshots
+.shots/
+
+# Local test roots and Python bytecode
+.devroot*/
+__pycache__/
+*.pyc
+
+# Portable packaging output (scripts/pack-portable.ps1)
+.pack/
+.searchtest/
+.launchtest/
+.cleartest/
+
+# Screenshot fixture roots. These hold real cloned repositories, so they must
+# never be committed: git otherwise picks up each clone as an embedded repo.
+.cardshow/
+.devshow/
+.gittest/
+
+# CDP verification fixture root (scripts/verify-fixes.ps1). Contains fake
+# repositories with .git directories, so it must never be committed either.
+.cdpfixtures/
+
+# MCP contract-test fixture container (tests/mcp-server.test.ts). Fake repositories
+# carrying fake .devhub.json markers, written on every run; a committed copy would make
+# git treat them as container content.
+.mcpfixtures/
+
+# Settings written by a development run. The portable build keeps this next to
+# the executable; in the checkout it lands here, and it is machine state, not
+# source.
+src-tauri/devhub-config.json
+src-tauri/devhub-config.json.bak
+src-tauri/devhub-window.json
+.tmp-compose-probe/
+env.local.ps1
+
+# Same for the operation log and the IDE icon cache: both are derived from this
+# machine's installs and history.
+src-tauri/devhub-activity.jsonl
+src-tauri/cache/
+
+# The repository index the scan maintains per project root. It is derived from a
+# directory listing and rebuilt on demand, so it is never source - and a
+# development container can legitimately live inside this checkout.
+.devhub-index.json
+
+# The watch probe `vite.config.ts` writes to prove its own watcher is alive. It
+# removes the file itself; this is only for a dev server killed mid-test.
+.devhub-watch-probe.html
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Linked worktrees for parallel development rounds. Both roots the repo actually
+# uses: `.worktrees/` and `.wt/`. `.wt/` was previously excluded only via the local
+# uncommitted `.git/info/exclude`, so a fresh clone or CI could not reproduce it and
+# would pick up a whole second checkout of every stream's files.
+.worktrees/
+.wt/
+
+# Agent working memory for this project (logs, dated notes). Machine-local
+# state, same class as .shots/ and .devroot*/ above — never repository content.
+.workbuddy/
+
+# Clone-strategy benchmark scratch root (scripts/clone-bench.ps1). Holds real
+# fixture repositories, so it must never be committed.
+.clonebench/
+
+# Process-tree probe scratch root (scripts/jobobject-probe.ps1). Holds the PID
+# files of the parent/child/grandchild chain it starts, so it must never be
+# committed either.
+.jobprobe/
+
+# sccache build cache (R1). Lives inside the repo so no build state is written
+# to C:. Recreated on first `cargo` run after `env.ps1` sets SCCACHE_DIR.
+.sccache-cache/
+src-tauri/.sccache-cache/
+
+# Vendored sccache binary. Installed via `cargo install sccache --root
+# vendor/sccache` (see docs/r1-sccache.md). Machine-local build tooling, not
+# source.
+vendor/sccache/
+
+# Vendored cargo-outdated binary (r21-R2-1). Installed via `cargo install
+# cargo-outdated --locked --root vendor/cargo-outdated` (docs/deps-ecosystems.md
+# §6.1). Machine-local probe tooling, same class as sccache: never source, never
+# committed — the exe alone is ~20 MB.
+vendor/cargo-outdated/
+
+# Editor directories and files
+.vscode/*

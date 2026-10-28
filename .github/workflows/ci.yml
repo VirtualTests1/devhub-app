@@ -1,0 +1,183 @@
+name: CI
+
+# 状态：**未执行过的配置，不是通过的流水线。**
+# 本仓库在 2026-10-14 没有任何远程（`git remote -v` 输出为空），所以这个文件一次都没有
+# 被 GitHub Actions 跑过。写它的依据全部来自本仓实测：`package.json` 的脚本入口、
+# DEVELOPMENT.md §1（为什么这台机器必须 `env.ps1`）与 §8（lint 依赖未安装的真实状态）。
+# 迁移到有远程的仓库后，第一次运行就是它的真机验证。
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+env:
+  # Tauri 2 的构建脚本在 CI 上不需要本机那套 MSVC 手工补丁，但要显式给出前端产物目录，
+  # 避免 `beforeBuildCommand` 与 `frontendDist` 路径在任何工作目录下漂移。
+  CARGO_TERM_COLOR: always
+
+jobs:
+  web:
+    name: 前端（tsc + vite + node:test + 不变量检查）
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # 本机实测版本（`pnpm install` 结尾打印 "using pnpm v10.33.0"）。
+          # package.json 里没有 packageManager 字段，所以这里必须写死，否则 CI 与本地的
+          # 解析器版本会漂移，lockfile 校验（--frozen-lockfile）会以一种谁也复现不了的方式失败。
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          # `--experimental-strip-types` 在 Node 22.18+ 才有；本仓 tests 依赖它直接跑 .ts。
+          # 若将来升到 23.6+/24，这个 flag 变成默认行为，脚本仍然可用。
+
+      - name: 安装依赖（严格按 lockfile）
+        run: pnpm install --frozen-lockfile
+
+      # `gate` 是本仓定义的合并门禁（package.json）：应用 tsc → 测试树 tsc →
+      # vite.config tsc → node:test → check（invariants + events + registry + docs
+      # + compose + lint——check-lint.mjs 是 round-15 d1 串进去的，本行以前写「四个」，
+      # round-16 o3 写「五个」，license-report 在 r3-4 曾短暂成六个、同日移去 verify；
+      # r21-o3 串进 check-compose.mjs 后是六个：invariants / events / registry /
+      # docs / compose / lint）。
+      # 以前这里手工列 build/test 三条，漏掉了 typecheck:tests 与 typecheck:node
+      # ——文档规定的门禁和 CI 跑的门禁是两套（round-14 d8 修过同样的漂移）。
+      - name: 门禁（gate = tsc ×3 + 单测 + 六个 check 脚本）
+        run: pnpm gate
+
+      # round-16 r3-1/r3-4 的许可证门禁。它**曾随 `pnpm gate` 到这里，2026-10-16 移出**：
+      # `license-report.mjs` 包的是 `pnpm licenses list --json`，实测不联网（该子命令拒绝
+      # `--registry`，把 registry 指到 127.0.0.1:1 仍 exit 0），但耗时取决于机器有多忙——
+      # 热 1.7 s、冷 17.4 s、本机另一条构建线占盘时 >180 s。留在一个会话要跑几十次的
+      # `check` 里，一小时内造成三次假失败；一个会因为机器忙而变红的门禁，人们学会重跑到绿，
+      # 那就不是门禁了。本地它的家变成 `pnpm verify`（发布前一次性、刻意跑的那条）。
+      #
+      # CI 是独占 runner，没有那个争用，所以这里**单独一步**继续把许可证管住：
+      # 移出 `check` 不等于取消这道关，只是把它放到不会误伤的地方。
+      - name: 许可证允许清单（round 16 r3）
+        run: node scripts/license-report.mjs --check
+
+      # 与之相对，`pnpm audit:report`（r3-2）**刻意不在这里也不在 gate/check/verify 里**：
+      # 它必须问 registry，本机默认镜像 registry.npmmirror.com 没有审计端点
+      # （实测 `pnpm audit --json` exit 1，ERR_PNPM_AUDIT_ENDPOINT_NOT_EXISTS），
+      # 脚本的结论是三态——0 干净 / 1 已知漏洞 / 2 无法判定。把它做成 CI 硬步骤，
+      # 等于让一个网络事实决定合并门禁的红绿，而「无法判定」被当成红或被当成绿都
+      # 是撒谎。它的手动/定时入口就是 `pnpm audit:report`（默认镜像失败时自动回退
+      # 官方 registry 取真结论；`--no-fallback` 用来确定性地复现 exit 2）。
+
+      - name: 类型检查与打包
+        run: pnpm build
+
+      # round-16 r3-3 起这一步不只是结构检查：它还拿实测基线卡 JS/CSS 体积预算
+      # （超标 FAIL 并打印当前值 vs 上限）。上限是**编译期常量**，故意不给运行时
+      # 覆盖口子——能被调用方静音的棘轮不是棘轮。要放宽就在同一处改常量，
+      # 让放宽必须经过一次 code review；`node scripts/check-dist.mjs --budgets`
+      # 会把当前实测值打印成可直接粘贴的常量。
+      - name: 构建产物结构与体积预算检查
+        run: node scripts/check-dist.mjs
+
+  native:
+    name: 后端（cargo test --lib）
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      # 与 web job 同版本锁定。以前这里裸跑 `pnpm install`——runner 预装的 pnpm
+      # 版本不保证与 web job 一致，lockfile 校验可能以一种 web job 没有的方式失败。
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # env.ps1 是给**这台机器**用的：DEVELOPMENT.md §1 记录了本机 vcvars64.bat 损坏、
+      # 三套 VS 里 `vswhere -latest` 指向不能编 C++ 的那套。GitHub 的 windows runner 带
+      # 可用的 MSVC 与 Windows SDK，所以这里不 source 它 —— 在 CI 上 source 一个只对本机
+      # 成立的路径表，得到的绿灯是假的。
+      - name: 报告工具链
+        run: |
+          rustc --version
+          cargo --version
+          pnpm --version
+
+      # 这一步现在有明确的下游：下一步的 vite 要用 node_modules。旧版注释把它的
+      # 存在解释成「build.rs 之前的 beforeBuildCommand 不需要，但 tauri-build 会读
+      # dist 配置」——那个说法掩盖了真正的编译期依赖：`tauri::generate_context!`
+      # （lib.rs:5924 的 `.build(tauri::generate_context!())`）在**编译测试二进制时**
+      # 把 tauri.conf.json 的 `build.frontendDist`（`../dist`）嵌进去，而 `dist/` 在
+      # `.gitignore` 里、不会随 checkout 到来 —— 新鲜 checkout 必然编不过
+      # （docs/archive/DevHub改进矩阵_round12_20261015.md §10.4 登记的缺陷）。
+      - name: 安装前端依赖（供下一步 vite 产出 ../dist）
+        run: pnpm install --frozen-lockfile
+
+      # 在 cargo test 之前造出 `generate_context!` 的编译期输入。
+      #
+      # 选 `pnpm exec vite build` 而不是 `pnpm build`（= tsc && vite build）：
+      # 三个 tsconfig 都是 `noEmit: true`，所以 `pnpm build` 里的 tsc 是纯类型
+      # 检查、不产出任何 vite 要吃的东西；类型已由 web job 的 `pnpm gate`
+      # （package.json：三次 tsc + 单测 + 六个 check 脚本）把关，本 job 再算一遍
+      # 同一个结论只是重复花 runner 时间。`generate_context!` 需要的只是真实存在的
+      # 产物本身 —— 与 `tauri build` 的 `beforeBuildCommand`（`pnpm build`）最终
+      # 落盘的是同一份 dist；cargo test 不经过 Tauri CLI，不会替我们跑那条命令。
+      - name: 前端产物（../dist = generate_context! 的编译期输入）
+        run: pnpm exec vite build
+
+      - name: cargo test --lib
+        working-directory: src-tauri
+        run: cargo test --lib
+
+  lint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: pnpm install --frozen-lockfile
+
+      # eslint 与那四个插件自 round-13 d7-3 起已在 devDependencies 里（配置真跑通），
+      # 不再需要 CI 里 `pnpm add` 装——那条命令不锁版本，runner 拉到什么就跑什么。
+      # continue-on-error 一并移除：lint 现在是真实门禁的一部分。
+      - name: pnpm lint
+        run: pnpm lint
+
+  supply-chain:
+    name: Rust 依赖供应链（r19-D3）
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: pnpm install --frozen-lockfile
+
+      # r19-D3: the Rust supply-chain check was previously only in `pnpm verify`
+      # (local, pre-release). CI is the right place for it: it runs on every
+      # push to master, so a new dependency that fails the audit lands here
+      # before it ships. The script exits 0/1/2 like license-report (0 = clean,
+      # 1 = known issues, 2 = indeterminate); only 0 and 1 are acceptable in CI.
+      - name: Rust 供应链检查
+        run: node scripts/rust-supply.mjs

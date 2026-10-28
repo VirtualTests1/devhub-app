@@ -1,0 +1,38 @@
+{
+  "_comment": [
+    "Verification-probe marker registry. scripts/pack-portable.ps1 reads this file and",
+    "refuses to package a release whose frontend entry point (src/main.tsx) or built",
+    "bundle (dist/assets/*.js) contains ANY marker listed below, because a shipped app",
+    "must never be a temporarily-swapped-in acceptance probe.",
+    "",
+    "WHY A REGISTRY RATHER THAN A HARD-CODED LIST IN THE PACKAGER: the old guard grepped",
+    "'SKIN RESULT', 'ACCEPTANCE RESULT', 'RESULT PASS', 'data-case='. Three of those match",
+    "nothing in this tree, and 'RESULT PASS' can never match because MainAcceptance.tsx",
+    "builds its verdict with a TEMPLATE literal (`RESULT ${cond ? \"PASS\" : \"FAIL\"}`) — the",
+    "contiguous string does not exist in the source or the bundle. Measured hits: 0. The",
+    "guard was decorative. The markers now live next to the probe that emits them, so the",
+    "probe owner updates them, not whoever remembers the packager's regex.",
+    "",
+    "THE REGISTRY IS NOT SELF-ATTESTING. pack-portable.ps1 cross-checks it against every",
+    "probe under scripts/verify/*.tsx:",
+    "  * each probe must declare  const DEVHUB_PROBE_MARKER = \"<literal>\";",
+    "  * that literal must appear in `markers` below  (unregistered probe = hard stop),",
+    "  * a registered marker that no probe emits as a quoted literal is reported as dead,",
+    "  * a missing file, a missing `markers` array, an empty list or a blank entry are all",
+    "    hard stops — the guard never degrades into 'nothing to check, therefore green'.",
+    "Exercise the whole guard without a release build:",
+    "  powershell -NoProfile -ExecutionPolicy Bypass -File scripts/pack-portable.ps1 -CheckProbeOnly",
+    "",
+    "MARKER RULES (so a release never trips on them by accident):",
+    "  * a plain STRING LITERAL present verbatim in the probe source, never a comment",
+    "    (comments are stripped by the bundler, so a comment-only marker protects",
+    "    src/main.tsx but NOT dist/assets/*.js),",
+    "  * never a template-interpolated fragment (same reason 'RESULT PASS' failed),",
+    "  * distinctive enough that product code will never contain it.",
+    "Add a probe -> add its marker here. If the list is empty or this file is missing,",
+    "the packager throws rather than shipping an unverified bundle."
+  ],
+  "markers": [
+    "devhub-acceptance-probe/v1"
+  ]
+}

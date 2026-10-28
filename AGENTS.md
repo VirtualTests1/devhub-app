@@ -22,6 +22,7 @@
 - About 使用一句直白描述和有区分度的 topics；homepage 只在存在真实站点时设置。
 - 不保留空的 Wiki、Projects、Discussions；Issues 保持开启；不为了“看起来完整”添加空壳功能。
 - Releases：每个版本有简洁 notes，tag 与版本一致；没有经校验的二进制时明确写“仅源码”，不伪造安装包；有二进制时提供来源与 checksum。
+- 已发布的 tag 默认视为不可变；只有在刚创建、无资产、无外部引用且用户明确同意时才可删除重建，不得用移动 tag 掩盖代码变化。
 - Packages：只有存在真实可消费包时才发布；不创建占位包。
 - Labels：保持小而通用；新增前确认不与现有语义重复。
 - README 徽章必须对应真实可访问的状态（CI / Release / License），不用会误导的静态徽章。

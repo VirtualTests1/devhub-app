@@ -58,7 +58,7 @@ portable/       便携版资源
 
 ## 发布
 
-[GitHub Releases](https://github.com/VirtualTests1/devhub-app/releases) — 版本说明与源码包。
+[GitHub Releases](https://github.com/VirtualTests1/devhub-app/releases) — 版本说明与源码包。当前版本仅提供源码，不含预编译安装包。
 
 ## 许可证
 

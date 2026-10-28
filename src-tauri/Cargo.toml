@@ -25,7 +25,9 @@ tauri-plugin-opener = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Cross-checks DNS answers before we pin an IP (downloader layer 2).
-hickory-resolver = "0.24"
+hickory-resolver = "0.26"
+# hickory 0.26 is async-only; the DNS cross-check drives it on a small current-thread runtime.
+tokio = { version = "1", features = ["rt", "net", "time"] }
 # Formats the bootstrap marker timestamp as a readable ISO 8601 string.
 # Already present in the tree via Tauri, declared here so we do not rely on a
 # transitive dependency.

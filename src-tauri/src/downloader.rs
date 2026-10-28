@@ -413,7 +413,10 @@ fn default_mirrors() -> Vec<String> {
 const PROXY_CANDIDATES: &[u16] = &[26501, 26502, 7890, 7897, 10809, 10808, 1080, 2080];
 
 /// Public resolvers queried to cross-check an IP before pinning it.
-const PUBLIC_DNS: &[&str] = &["1.1.1.1", "8.8.8.8", "223.5.5.5"];
+// Two independent operators per region: the cross-check must still be able to
+// find an agreement on networks where one provider's resolver is blocked
+// (measured here: 1.1.1.1 times out, 223.5.5.5 and 119.29.29.29 both answer).
+const PUBLIC_DNS: &[&str] = &["1.1.1.1", "8.8.8.8", "223.5.5.5", "119.29.29.29"];
 
 // ---------------------------------------------------------------------------
 // Port pool
@@ -1708,7 +1711,10 @@ pub fn resolve_agreed_ip(host: &str) -> Option<String> {
         }
     }
 
-    use hickory_resolver::config::{NameServerConfigGroup, ResolverConfig, ResolverOpts};
+    use hickory_resolver::config::{
+        ConnectionConfig, NameServerConfig, ResolveHosts, ResolverConfig, ResolverOpts,
+    };
+    use hickory_resolver::net::runtime::TokioRuntimeProvider;
     use hickory_resolver::Resolver;
 
     let host_owned = host.to_string();
@@ -1720,17 +1726,41 @@ pub fn resolve_agreed_ip(host: &str) -> Option<String> {
         };
         let h = host_owned.clone();
         handles.push(std::thread::spawn(move || {
-            let cfg = ResolverConfig::from_parts(
-                None,
-                vec![],
-                NameServerConfigGroup::from_ips_clear(&[ip], 53, true),
+            let ns = NameServerConfig::new(
+                ip,
+                true,
+                vec![ConnectionConfig::udp(), ConnectionConfig::tcp()],
             );
+            let cfg = ResolverConfig::from_parts(None, vec![], vec![ns]);
             let mut opts = ResolverOpts::default();
             opts.timeout = DNS_QUERY_TIMEOUT;
             opts.attempts = 1;
-            opts.validate = false;
-            let resolver = Resolver::new(cfg, opts).ok()?;
-            let lookup = resolver.lookup_ip(&h).ok()?;
+            // The cross-check exists to see what public DNS says *instead of* the
+            // local hosts file; reading hosts here would return whatever
+            // accelerator wrote 127.0.0.1 and defeat the whole layer.
+            opts.use_hosts_file = ResolveHosts::Never;
+            // DNSSEC is not compiled in (no `dnssec-*` feature), so there is
+            // nothing to disable; `validate` is absent from this build's opts.
+            // hickory 0.26 is async-only. A current-thread runtime per probe keeps
+            // this synchronous helper's contract (one thread → one answer) without
+            // changing the concurrency the outer loop already provides.
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_io()
+                .enable_time()
+                .build()
+                .ok()?;
+            // Build and query inside `block_on`: the provider captures the
+            // current Tokio handle, so constructing the resolver while the
+            // runtime is merely *created* (not entered) leaves its background
+            // tasks without a reactor.
+            let lookup = rt.block_on(async {
+                let resolver =
+                    Resolver::builder_with_config(cfg, TokioRuntimeProvider::default())
+                        .with_options(opts)
+                        .build()
+                        .ok()?;
+                resolver.lookup_ip(&h).await.ok()
+            })?;
             lookup.iter().next().map(|a| a.to_string())
         }));
     }
@@ -4950,6 +4980,15 @@ mod tests {
     // bounds (TTL, capacity) hold. No resolver is contacted — these exercise
     // `DnsCache` directly.
     // ---------------------------------------------------------------------
+
+    #[test]
+    #[ignore = "network: needs two public DNS resolvers to agree"]
+    fn resolve_agreed_ip_can_reach_public_resolvers() {
+        // Manual smoke test after the hickory 0.26 (async-only) migration:
+        // `cargo test --lib resolve_agreed_ip_can_reach -- --ignored`.
+        let ip = resolve_agreed_ip("github.com");
+        assert!(ip.is_some(), "public resolvers returned no agreed address");
+    }
 
     #[test]
     fn a_failed_resolution_is_not_cached() {

@@ -2,6 +2,8 @@
 
 Windows 桌面应用：把 GitHub 项目集中到一个图标墙，完成搜索、下载、启动和清理。
 
+[![CI](https://github.com/VirtualTests1/devhub-app/actions/workflows/ci.yml/badge.svg)](https://github.com/VirtualTests1/devhub-app/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/VirtualTests1/devhub-app?display_name=tag)](https://github.com/VirtualTests1/devhub-app/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 ## 功能

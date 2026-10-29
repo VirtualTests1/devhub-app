@@ -77,7 +77,7 @@ test("wiring: one hook, one setting, one capability", () => {
   const cap = readFileSync("src-tauri/capabilities/default.json", "utf8");
   assert.match(cap, /core:window:allow-request-user-attention/);
   const batch = readFileSync("src/components/BatchBar.tsx", "utf8");
-  assert.match(batch, /onSettled\?\.\(action\.id, sum\.ok, sum\.total\)/);
+  assert.match(batch, /onSettled\?\.\(action\.id, sum\.ok, sum\.total, sum\.skipped\.length\)/);
   const wall = readFileSync("src/views/ProjectsView.tsx", "utf8");
   assert.match(wall, /requestCompletionAttention\(ok === total \? "success" : "failure"\)/);
 });

@@ -4572,7 +4572,7 @@ impl Downloader {
                     "clone",
                     "Git LFS smudge 失败，改用 GIT_LFS_SKIP_SMUDGE=1 重试（保留指针并提示）",
                 );
-                let _ = std::fs::remove_dir_all(target);
+                std::fs::remove_dir_all(target).ok();
                 let retry_started = Instant::now();
                 match run_git_streaming(
                     progress.clone(),

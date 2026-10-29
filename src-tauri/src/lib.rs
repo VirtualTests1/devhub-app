@@ -1166,36 +1166,6 @@ async fn preview_ref(
     .map_err(|e| format!("预览任务异常: {e}"))?
 }
 
-/// Facts the download queue checks before it starts git (r31-O2).
-///
-/// No network and no git resolution: the path is computed by the same pure
-/// `target_path_for` the downloader uses, then the filesystem answers occupancy
-/// and free space. The queue turns these facts into a refusal before spawning a
-/// clone that the backend would reject after its first git call.
-#[tauri::command]
-async fn download_preflight(
-    app: tauri::AppHandle,
-    input: String,
-    target_dir: Option<String>,
-) -> Result<downloader::DownloadPreflight, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        let r: RepoRef = downloader::parse_ref(&input).map_err(|e| e.to_string())?;
-        let target = match target_dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-            Some(dir) => {
-                // The same Write guard the download uses; a preflight that said
-                // "fine" for a path the download later refuses would be worse than
-                // no preflight.
-                let guarded = path_guard::guard(&app, dir, path_guard::Access::Write)?;
-                netpath::strip_verbatim(&guarded)
-            }
-            None => downloader::target_path_for(&project_root(), &r),
-        };
-        Ok(downloader::preflight_for(&target))
-    })
-    .await
-    .map_err(|e| format!("下载预检任务异常: {e}"))?
-}
-
 /// 更新 one repository: `git pull --ff-only` through the download ladder
 /// (round 11, 需求 8.1).
 ///
@@ -4619,7 +4589,7 @@ pub fn run() {
             environment,
             netstatus::net_status,
             preview_ref, preview::preview_remote,
-            download_preflight,
+            downloads_cmd::download_preflight,
             downloads_cmd::download_repo,
             downloads_cmd::cancel_download,
             update_repo,

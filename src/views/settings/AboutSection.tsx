@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Download, Info, RefreshCw } from "lucide-react";
+import { Download, Globe, Info, RefreshCw } from "lucide-react";
 import { SettingsGroup, SettingRow } from "../../components/SettingsRows";
 import { openHttpUrl } from "../../lib/external-url";
 import { messageOf } from "../../lib/report-error";
 import { useI18n } from "../../lib/useI18n";
-import type { AppUpdate } from "../../types";
+import type { AppUpdate, WebView2Info } from "../../types";
 
 /**
  * 设置 → 关于: current version and a read-only release check.
@@ -17,6 +17,7 @@ import type { AppUpdate } from "../../types";
 export function AboutSection() {
   const { t } = useI18n();
   const [version, setVersion] = useState<string | null>(null);
+  const [webview2, setWebview2] = useState<WebView2Info | null>(null);
   const [update, setUpdate] = useState<AppUpdate | null>(null);
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,13 @@ export function AboutSection() {
       })
       .catch(() => {
         if (alive) setVersion(null);
+      });
+    void invoke<WebView2Info>("webview2_info")
+      .then((v) => {
+        if (alive) setWebview2(v);
+      })
+      .catch(() => {
+        if (alive) setWebview2(null);
       });
     return () => {
       alive = false;
@@ -62,6 +70,20 @@ export function AboutSection() {
           title={t("about.versionTitle")}
           rowHint={version ? `v${version}` : "—"}
           hint={t("about.versionHint")}
+        />
+        <SettingRow
+          icon={<Globe className="h-4 w-4" />}
+          title={t("about.webview2Title")}
+          rowHint={
+            webview2 === null
+              ? "—"
+              : (webview2.version ?? t("about.webview2Missing"))
+          }
+          hint={
+            webview2 !== null && webview2.version === null
+              ? t("about.webview2MissingHint")
+              : t("about.webview2Hint")
+          }
         />
         <SettingRow
           icon={<RefreshCw className="h-4 w-4" />}

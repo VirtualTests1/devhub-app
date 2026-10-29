@@ -31,6 +31,13 @@ test("AboutSection: cached answers are dated and can be force-refreshed", () => 
   assert.equal(tFor("en", "about.cached"), "Cached for 10 minutes");
 });
 
+test("AboutSection: the installed WebView2 runtime is reported", () => {
+  assert.match(ABOUT, /invoke<WebView2Info>\("webview2_info"\)/);
+  assert.match(ABOUT, /t\("about\.webview2Missing"\)/);
+  assert.equal(tFor("zh-CN", "about.webview2Title"), "WebView2 运行时");
+  assert.equal(tFor("en", "about.webview2Missing"), "Not detected");
+});
+
 test("catalog and settings render the about section", () => {
   assert.match(CATALOG, /id: "about", label: "关于"/);
   assert.match(SETTINGS, /activeSection === "about" && <AboutSection \/>/);

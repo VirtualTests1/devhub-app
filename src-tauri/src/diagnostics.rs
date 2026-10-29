@@ -53,6 +53,7 @@ struct DiagnosticsFacts {
     app_version: String,
     os: String,
     arch: String,
+    webview2: crate::webview2::WebView2Info,
     config_path: String,
     window_state_path: String,
     roots: Vec<RootFact>,
@@ -84,6 +85,7 @@ fn collect_facts() -> DiagnosticsFacts {
         app_version: env!("CARGO_PKG_VERSION").to_string(),
         os: std::env::consts::OS.to_string(),
         arch: std::env::consts::ARCH.to_string(),
+        webview2: crate::webview2::info(),
         config_path: config_path().display().to_string(),
         window_state_path: window_state_path().display().to_string(),
         roots: roots
@@ -119,6 +121,11 @@ pub(crate) fn build_diagnostics_report() -> String {
     out.push_str("# DevHub 诊断报告\n\n");
     out.push_str(&format!("- 应用版本: {}\n", f.app_version));
     out.push_str(&format!("- 操作系统: {} ({})\n", f.os, f.arch));
+    out.push_str(&format!(
+        "- WebView2: {}（{}）\n",
+        f.webview2.version.as_deref().unwrap_or("未检测到"),
+        f.webview2.source
+    ));
     out.push_str(&format!("- 配置文件: {}\n", f.config_path));
     out.push_str(&format!("- 窗口状态: {}\n", f.window_state_path));
 

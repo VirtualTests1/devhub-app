@@ -828,6 +828,13 @@ export type AppUpdate = {
   fromCache?: boolean;
 };
 
+/** Installed WebView2 runtime, resolved by the backend (r31-N3). */
+export type WebView2Info = {
+  version: string | null;
+  source: "directory" | "registry" | "missing";
+  path: string | null;
+};
+
 /** What the panic hook wrote beside the config after a previous abnormal exit. */
 export type CrashReport = {
   at: string;

@@ -2263,6 +2263,10 @@ const ZH = {
   "batch.rowSkippedTail": "{text}，{n} 个未执行（已停止）",
   "readme.taskDone": "已完成的任务",
   "readme.taskOpen": "未完成的任务",
+  "about.webview2Title": "WebView2 运行时",
+  "about.webview2Hint": "用于显示界面的 Microsoft Edge WebView2；这里只读取本机版本。",
+  "about.webview2Missing": "未检测到",
+  "about.webview2MissingHint": "未检测到 WebView2 运行时；请安装 Microsoft Edge WebView2 Runtime，应用不会自动下载。",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4317,6 +4321,10 @@ const EN_VALUES = [
   "{text}; {n} not run (stopped)",
   "Completed task",
   "Open task",
+  "WebView2 runtime",
+  "Microsoft Edge WebView2 renders the interface; this only reads the installed version.",
+  "Not detected",
+  "WebView2 runtime not found. Install Microsoft Edge WebView2 Runtime; the app does not download it automatically.",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

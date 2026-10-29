@@ -44,6 +44,7 @@ mod search_cmd;
 mod searchgrep;
 mod settings_cmd;
 mod update_check;
+mod webview2;
 
 // r21-o1-1: names moved into settings_cmd.rs keep resolving at the root.
 use proc::ProcessState;
@@ -4647,6 +4648,7 @@ pub fn run() {
             update_check::app_version,
             crash::last_crash,
             crash::clear_crash,
+            webview2::webview2_info,
             ensure_git,
             git_bootstrap_status,
             repo_detail,

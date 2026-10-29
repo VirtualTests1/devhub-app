@@ -315,6 +315,64 @@ mod tests {
         assert!(t0.elapsed() < Duration::from_secs(5), "cancel + join must be prompt");
     }
 
+    /// How many names a real 500-file burst puts through this channel, and how
+    /// long the reader takes to drain them. This is a measurement, not a promise:
+    /// ReadDirectoryChangesW is allowed to coalesce and, if the 64 KB buffer
+    /// overflows, to report a rescan instead of every name. The existing 700 ms
+    /// polling pass is the documented fallback, so the test asserts that events
+    /// arrive and prints the coverage rather than failing on a coalesced write.
+    ///
+    ///     cargo test --lib -- --ignored --nocapture bench_write_burst_coverage
+    #[test]
+    #[ignore = "stress measurement; run with --ignored --nocapture"]
+    #[cfg(windows)]
+    fn bench_write_burst_coverage() {
+        use std::collections::HashSet;
+        use std::time::{Duration, Instant};
+        let s = Scratch::new("burst");
+        for d in 0..10 {
+            std::fs::create_dir_all(s.0.join(format!("d{d}"))).unwrap();
+        }
+        let (watch, rx) = start(&s.0).expect("start watcher");
+        std::thread::sleep(Duration::from_millis(200));
+        let total = 500usize;
+        let started = Instant::now();
+        for i in 0..total {
+            let path = s.0.join(format!("d{}", i % 10)).join(format!("f{i:04}.txt"));
+            std::fs::write(path, b"x").unwrap();
+        }
+        let write_ms = started.elapsed().as_millis();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut batches = 0usize;
+        let mut errors = 0usize;
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while Instant::now() < deadline {
+            match rx.recv_timeout(Duration::from_millis(800)) {
+                Ok(Ok(names)) => {
+                    batches += 1;
+                    for n in names {
+                        seen.insert(n);
+                    }
+                }
+                Ok(Err(e)) => {
+                    errors += 1;
+                    println!("watcher error: {e}");
+                    break;
+                }
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+        let files_seen = seen.iter().filter(|n| n.ends_with(".txt")).count();
+        println!(
+            "wrote {total} files in {write_ms} ms; unique names {} ({files_seen} file names);              batches {batches}; errors {errors}; drain {} ms",
+            seen.len(),
+            started.elapsed().as_millis(),
+        );
+        assert!(files_seen > 0, "a 500-file burst must produce at least one file notification");
+        drop(watch);
+    }
+
     #[test]
     #[cfg(windows)]
     fn a_truncated_notification_chain_is_rejected_not_read_out_of_bounds() {

@@ -94,9 +94,29 @@ impl DebouncedBatch {
 /// inside the window too.
 pub const QUIET: std::time::Duration = std::time::Duration::from_millis(1200);
 
-/// How often one scan pass runs. Cheapest number that is still far below "a person
-/// notices a delay", and it is a *pass over the registry*, not per-repository.
+/// How often one scan pass runs when the native watcher does not cover every root.
+/// Cheapest number that is still far below "a person notices a delay", and it is a
+/// *pass over the registry*, not per-repository.
 pub const SCAN_EVERY: std::time::Duration = std::time::Duration::from_millis(700);
+
+/// How often the polling safety net runs when every watched root has a native
+/// watcher. Native events are the primary path; this pass only catches a missed
+/// notification, so paying a `read_dir` + one `metadata` per child every 700 ms
+/// on top of a working watcher is duplicated work that grows with the wall.
+pub const NATIVE_BACKUP_EVERY: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// The sampler period for the current coverage.
+///
+/// Partial coverage keeps the old cadence: one unwatched root is enough for a
+/// change to be invisible until the next poll. Zero roots also keeps it, so a
+/// wall that is still loading is not sampled late.
+pub fn poll_interval(roots: usize, native_covered: usize) -> std::time::Duration {
+    if roots > 0 && native_covered >= roots {
+        NATIVE_BACKUP_EVERY
+    } else {
+        SCAN_EVERY
+    }
+}
 
 /// The two numbers a directory's "something was written here" cheaply implies.
 ///
@@ -407,6 +427,49 @@ mod tests {
         let json = serde_json::to_string(&Batch { slugs: vec!["a/b".to_string()] }).unwrap();
         assert_eq!(json, r#"{"slugs":["a/b"]}"#);
     }
+
+    #[test]
+    fn poll_interval_backs_off_only_under_full_native_coverage() {
+        assert_eq!(poll_interval(0, 0), SCAN_EVERY, "no roots yet: stay ready");
+        assert_eq!(poll_interval(3, 0), SCAN_EVERY, "no coverage keeps the fast path");
+        assert_eq!(poll_interval(3, 1), SCAN_EVERY, "one uncovered root is enough for fast polling");
+        assert_eq!(poll_interval(3, 2), SCAN_EVERY);
+        assert_eq!(poll_interval(3, 3), NATIVE_BACKUP_EVERY);
+        assert_eq!(poll_interval(3, 4), NATIVE_BACKUP_EVERY, "a stale count cannot speed it up or panic");
+    }
+
+    /// What the 700 ms pass costs at wall scale, so "native watchers make polling
+    /// redundant" is a measurement rather than an assumption. Run on the machine
+    /// that matters:
+    ///
+    ///     cargo test --lib -- --ignored --nocapture bench_scan_cost
+    #[test]
+    #[ignore = "benchmark; run with --ignored --nocapture"]
+    fn bench_scan_cost_at_100_roots() {
+        let s = Scratch::new("bench");
+        let mut roots = Vec::new();
+        for i in 0..100 {
+            let dir = s.0.join(format!("repo-{i:03}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            for j in 0..20 {
+                std::fs::write(dir.join(format!("f{j}.txt")), b"x").unwrap();
+            }
+            roots.push((format!("owner/repo-{i}"), dir));
+        }
+        let started = std::time::Instant::now();
+        let mut d = ChangeDetector::new();
+        d.set_watched(roots.clone());
+        println!("set_watched(100 roots): {} ms", started.elapsed().as_millis());
+
+        let mut total = 0u128;
+        for _ in 0..5 {
+            let t = std::time::Instant::now();
+            d.scan(std::time::Instant::now());
+            total += t.elapsed().as_millis();
+        }
+        println!("scan(100 roots, 20 children each): {} ms/pass", total / 5);
+        assert_eq!(d.watched_count(), 100);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -416,23 +479,40 @@ mod tests {
 static NATIVE_WATCHERS: std::sync::OnceLock<std::sync::Mutex<Vec<crate::native_watch::NativeWatch>>> =
     std::sync::OnceLock::new();
 
+/// Registry size and how many of those roots currently have a native watcher.
+/// Kept as plain atomics because the sampler thread reads them every tick and
+/// must never take the watcher lock (which is held while threads join).
+static WATCHED_ROOTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+static NATIVE_COVERED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+fn set_coverage(roots: usize, native: usize) {
+    WATCHED_ROOTS.store(roots, std::sync::atomic::Ordering::SeqCst);
+    NATIVE_COVERED.store(native.min(roots), std::sync::atomic::Ordering::SeqCst);
+}
+
 fn native_watchers() -> &'static std::sync::Mutex<Vec<crate::native_watch::NativeWatch>> {
     NATIVE_WATCHERS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
 }
 
 /// Start one recursive native watcher per accepted root, replacing the previous set.
-/// Every event is folded into the same `ChangeDetector` batch; the 700 ms polling
-/// scan stays enabled, so a missed native event degrades to the old latency instead
-/// of a silent hole. A root whose watcher cannot start is simply left to polling.
-pub(crate) fn restart_native_watchers(roots: &[(String, std::path::PathBuf)]) {
+/// Every event is folded into the same `ChangeDetector` batch; polling stays enabled,
+/// so a missed native event degrades to the old latency instead of a silent hole. A
+/// root whose watcher cannot start is simply left to polling.
+///
+/// Returns how many roots got a watcher. The sampler uses that count to decide
+/// whether its 700 ms pass is still the primary path or only a safety net.
+pub(crate) fn restart_native_watchers(roots: &[(String, std::path::PathBuf)]) -> usize {
     let Ok(mut guard) = native_watchers().lock() else {
-        return;
+        set_coverage(roots.len(), 0);
+        return 0;
     };
     // Dropping the old watchers cancels and joins their reader threads.
     guard.clear();
+    let mut covered = 0usize;
     for (slug, path) in roots {
         match crate::native_watch::start(path) {
             Ok((watch, rx)) => {
+                covered += 1;
                 let slug = slug.clone();
                 std::thread::Builder::new()
                     .name("devhub-native-forward".to_string())
@@ -458,6 +538,8 @@ pub(crate) fn restart_native_watchers(roots: &[(String, std::path::PathBuf)]) {
             Err(e) => eprintln!("[fs_watch] native watcher unavailable for {}: {e}", path.display()),
         }
     }
+    set_coverage(roots.len(), covered);
+    covered
 }
 
 /// Stop every native watcher (RunEvent::Exit). Polling threads need no stop path,
@@ -466,6 +548,7 @@ pub(crate) fn stop_native_watchers() {
     if let Ok(mut guard) = native_watchers().lock() {
         guard.clear();
     }
+    set_coverage(WATCHED_ROOTS.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -545,42 +628,62 @@ pub(crate) async fn watch_repositories(app: tauri::AppHandle, roots: Vec<WatchRo
     Ok(count)
 }
 
-/// The sampler thread: one pass every `SCAN_EVERY`, emit once a burst has folded.
+/// The sampler thread: one pass per [`poll_interval`], emit once a burst has folded.
 ///
 /// Started at most once (`SAMPLER_ON`) and never stopped on purpose: the process holds no
 /// OS handle here (a `read_dir` per root), so exiting with the app *is* the shutdown path,
 /// and `RunEvent::Exit`'s `kill_tree` has none of ours to reap. The lock is held for the
 /// scan only and released before the emit, so a slow listener cannot stall a tick.
+///
+/// When every root has a native watcher the pass slows to [`NATIVE_BACKUP_EVERY`].
+/// That is not an assumption that the watcher never misses: it is the reason the
+/// pass still runs at all. The 700 ms cadence is only needed while polling is the
+/// primary detector, and one uncovered root restores it.
 pub(crate) fn ensure_sampler(app: &tauri::AppHandle) {
     if SAMPLER_ON.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return;
     }
     let handle = app.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(crate::fs_watch::SCAN_EVERY);
-        let guard = match watch_state().lock() {
-            Ok(g) => g,
-            // A poisoned lock means someone panicked inside a scan. Retrying quietly is
-            // the honest behaviour for a background notifier; the counter below is what
-            // makes the situation visible rather than invisible.
-            Err(_) => continue,
-        };
-        let now = std::time::Instant::now();
-        let mut detector = guard;
-        detector.scan(now);
-        let batch = detector.take_due(now);
-        let unreadable = detector.unreadable().len();
-        drop(detector);
-        if let Some(b) = batch {
-            // Deliberately *not* `let _ = handle.emit(..)`: the `rust-swallowed-errors`
-            // ratchet counts that shape, and it is right to — an emit that fails means the
-            // wall was told nothing. Say so in the console instead.
-            if handle.emit("repo://changed", &b).is_err() {
-                println!("[fs-watch] repo://changed 发送失败：{} 个 slug 的通知没有送达", b.slugs.len());
+    std::thread::spawn(move || {
+        let mut last_interval = None;
+        loop {
+            let roots = WATCHED_ROOTS.load(std::sync::atomic::Ordering::Relaxed);
+            let covered = NATIVE_COVERED.load(std::sync::atomic::Ordering::Relaxed);
+            let every = crate::fs_watch::poll_interval(roots, covered);
+            if last_interval != Some(every) {
+                println!(
+                    "[fs-watch] poll every {} ms (native {}/{} roots)",
+                    every.as_millis(),
+                    covered.min(roots),
+                    roots
+                );
+                last_interval = Some(every);
             }
-        }
-        if unreadable > 0 {
-            println!("[fs-watch] {unreadable} 个被登记目录本轮读不到");
+            std::thread::sleep(every);
+            let guard = match watch_state().lock() {
+                Ok(g) => g,
+                // A poisoned lock means someone panicked inside a scan. Retrying quietly is
+                // the honest behaviour for a background notifier; the counter below is what
+                // makes the situation visible rather than invisible.
+                Err(_) => continue,
+            };
+            let now = std::time::Instant::now();
+            let mut detector = guard;
+            detector.scan(now);
+            let batch = detector.take_due(now);
+            let unreadable = detector.unreadable().len();
+            drop(detector);
+            if let Some(b) = batch {
+                // Deliberately *not* `let _ = handle.emit(..)`: the `rust-swallowed-errors`
+                // ratchet counts that shape, and it is right to — an emit that fails means the
+                // wall was told nothing. Say so in the console instead.
+                if handle.emit("repo://changed", &b).is_err() {
+                    println!("[fs-watch] repo://changed 发送失败：{} 个 slug 的通知没有送达", b.slugs.len());
+                }
+            }
+            if unreadable > 0 {
+                println!("[fs-watch] {unreadable} 个被登记目录本轮读不到");
+            }
         }
     });
 }

@@ -69,6 +69,8 @@ export type CorpusCard = {
 export type CorpusState = {
   alias?: string;
   tags?: string[];
+  /** The local note typed on the card (r30-N2); searchable like the alias. */
+  note?: string;
 };
 
 /** Inline nodes → the plain words a heading (or its badges) actually reads as. */
@@ -145,6 +147,7 @@ export function corpusEntryOf(
   if (card.path != null) entry.path = card.path;
   if (card.local != null) entry.local = card.local;
   if (state?.alias != null) entry.alias = state.alias;
+  if (state?.note != null) entry.note = state.note;
   if (state?.tags != null) entry.tags = state.tags;
   const description = extras?.description ?? card.description ?? null;
   if (description != null) entry.description = description;

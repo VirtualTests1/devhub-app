@@ -43,6 +43,8 @@ export type WallCard = {
 export type WallCardState = {
   alias?: string;
   tags?: string[];
+  /** The local note is part of what this person wrote about the card. */
+  note?: string;
 };
 
 export type WallMatchContext = {
@@ -73,10 +75,10 @@ export function matchWallCard(card: WallCard, ctx: WallMatchContext): boolean {
   const q = ctx.query.trim().toLowerCase();
   const state = ctx.states[card.slug];
   if (q) {
-    // Name, alias, owner, on-disk path and 标签 — the five things a person
+    // Name, alias, note, owner, on-disk path and 标签 — the things a person
     // actually remembers. `local` is skipped: the wall never carries it.
     const hay =
-      `${card.repo} ${state?.alias ?? ""} ${card.owner} ${card.path ?? ""} ${state?.tags?.join(" ") ?? ""}`.toLowerCase();
+      `${card.repo} ${state?.alias ?? ""} ${state?.note ?? ""} ${card.owner} ${card.path ?? ""} ${state?.tags?.join(" ") ?? ""}`.toLowerCase();
     if (!hay.includes(q)) return false;
   }
   if (!matchesTagFilter(state?.tags, ctx.activeTags)) return false;

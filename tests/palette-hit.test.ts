@@ -52,6 +52,7 @@ test("palette-hit: 有词表项的字段走词表键（可被测试看到）", (
   assert.equal(localFieldLabelOf("readme", t), "[readme.settingsRow]");
   assert.equal(localFieldLabelOf("tags", t), "[wall.tagChips.label]");
   assert.equal(localFieldLabelOf("owner", t), "[wall.sort.owner]");
+  assert.equal(localFieldLabelOf("note", t), "[psd.note]");
 });
 
 test("palette-hit: 词表没有的字段回落到英文标识，不编造、不硬编码中文", () => {

@@ -60,7 +60,7 @@ import {
 import { slugOf } from "./slug";
 
 /** The searchable fields, in the order a reader would list them. */
-export type LocalField = "name" | "alias" | "description" | "readme" | "tags" | "owner" | "path";
+export type LocalField = "name" | "alias" | "note" | "description" | "readme" | "tags" | "owner" | "path";
 
 /**
  * Per-field multipliers, the one lever that makes "the word is in the repository's
@@ -80,6 +80,7 @@ export type LocalField = "name" | "alias" | "description" | "readme" | "tags" | 
  */
 export const LOCAL_FIELD_WEIGHTS: Readonly<Record<LocalField, number>> = {
   alias: 3.5,
+  note: 3.4,
   name: 3,
   description: 2,
   readme: 1.5,
@@ -98,6 +99,7 @@ export const LOCAL_FIELD_WEIGHTS: Readonly<Record<LocalField, number>> = {
 export const LOCAL_FIELD_PRECEDENCE: readonly LocalField[] = [
   "name",
   "alias",
+  "note",
   "description",
   "readme",
   "tags",
@@ -110,6 +112,9 @@ export const LOCAL_SEARCH_DEFAULT_LIMIT = 20;
 
 /** A description is a sentence; anything longer than this was not meant as one. */
 export const LOCAL_DESCRIPTION_CHAR_LIMIT = 2000;
+
+/** A local note is capped at the same length the wall store accepts. */
+export const LOCAL_NOTE_CHAR_LIMIT = 2000;
 
 /** README headings: 40 is more than a real file yields, and bounds a hostile array. */
 export const LOCAL_README_HEADING_LIMIT = 40;
@@ -193,6 +198,7 @@ export function localDocOf(raw: unknown): LocalDoc | null {
   const fields: Record<LocalField, string> = {
     name: repo,
     alias: text(entry.alias) ?? "",
+    note: text(entry.note, LOCAL_NOTE_CHAR_LIMIT) ?? "",
     description: text(entry.description, LOCAL_DESCRIPTION_CHAR_LIMIT) ?? "",
     readme: readmeTextOf(entry.readmeHeadings),
     tags: tagsTextOf(entry.tags),

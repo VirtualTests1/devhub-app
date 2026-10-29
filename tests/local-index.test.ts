@@ -20,6 +20,7 @@ import {
   LOCAL_DESCRIPTION_CHAR_LIMIT,
   LOCAL_FIELD_PRECEDENCE,
   LOCAL_FIELD_WEIGHTS,
+  LOCAL_NOTE_CHAR_LIMIT,
   LOCAL_README_HEADING_LIMIT,
   LOCAL_SEARCH_DEFAULT_LIMIT,
   buildLocalIndex,
@@ -69,6 +70,7 @@ const ENTRIES = [
     repo: "rust-analyzer",
     slug: "github.com/rust-lang/rust-analyzer",
     readmeHeadings: ["Installation", "Configuration", "端口排查"],
+    note: "离线笔记：端口排查",
   },
   // Nothing but identity: the shape a freshly-scanned repository has.
   { host: "github.com", owner: "BurntSushi", repo: "ripgrep", slug: "github.com/BurntSushi/ripgrep" },
@@ -139,6 +141,12 @@ test("local-index: 命中描述 / README 标题时 reason 报的是那个字段"
   const byTag = searchLocal(index, "代理");
   assert.equal(byTag[0]?.slug, "github.com/owner/端口转发");
   assert.equal(byTag[0]?.reason, "tags");
+  const byNote = searchLocal(index, "离线笔记");
+  assert.deepEqual(
+    byNote.map((h) => [h.slug, h.reason]),
+    [["github.com/rust-lang/rust-analyzer", "note"]],
+    "a word the user typed in 本地备注 is part of the card's vocabulary",
+  );
 });
 
 test("local-index: reason 是字段标识，不是句子（界面文案留给 i18n 那批）", () => {
@@ -325,6 +333,7 @@ test("local-index: 非字符串字段不进语料，也不会变成「undefined�
   assert.deepEqual(doc.fields, {
     name: "widget",
     alias: "",
+    note: "",
     description: "",
     readme: "",
     tags: "",
@@ -352,11 +361,20 @@ test("local-index: 字段内容按上限截断，载荷不能把每次击键变�
         i === LOCAL_README_HEADING_LIMIT ? "latentsentinel" : `heading${i}`,
       ),
     },
+    {
+      owner: "o",
+      repo: "bignote",
+      note: `${padding}${sentinel}`,
+    },
   ]);
   const big = live.docs.get("github.com/o/bigdesc");
   assert.equal(big?.fields.description.length, LOCAL_DESCRIPTION_CHAR_LIMIT, "描述按字符上限切");
+  assert.equal(live.docs.get("github.com/o/bignote")?.fields.note.length, LOCAL_NOTE_CHAR_LIMIT);
   assert.deepEqual(searchLocal(live, sentinel), [], "上限之后的内容没有进语料");
-  assert.equal(searchLocal(live, "filler")[0]?.slug, "github.com/o/bigdesc", "上限之内照常可搜");
+  assert.ok(
+    searchLocal(live, "filler").some((h) => h.slug === "github.com/o/bigdesc"),
+    "上限之内照常可搜",
+  );
   const many = live.docs.get("github.com/o/manyheadings");
   assert.equal(
     many?.fields.readme.split(" ").length,

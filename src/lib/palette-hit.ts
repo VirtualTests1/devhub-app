@@ -47,6 +47,7 @@ import { type LocalDoc, type LocalField, type LocalHit } from "./local-index";
 const LABEL_KEYS: Readonly<Record<LocalField, TranslationKey | null>> = {
   name: "wall.sort.name",
   alias: null,
+  note: "psd.note",
   description: "wall.sort.desc",
   readme: "readme.settingsRow",
   tags: "wall.tagChips.label",
@@ -59,6 +60,7 @@ const LABEL_KEYS: Readonly<Record<LocalField, TranslationKey | null>> = {
 const LABEL_FALLBACK: Readonly<Record<LocalField, string>> = {
   name: "name",
   alias: "alias",
+  note: "note",
   description: "desc",
   readme: "README",
   tags: "tags",

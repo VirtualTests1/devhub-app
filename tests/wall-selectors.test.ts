@@ -145,4 +145,17 @@ test("facets: language/category intersect with search and tags; missing metadata
     filterWallCards(cards, { ...ctx, activeTags: [], language: "Rust" }).map((c) => c.slug),
     ["a"],
   );
+  // A local note is searchable like the alias; the query path and the tag/facet
+  // path are separate, so a note-only hit must still be filtered by them.
+  assert.deepEqual(
+    filterWallCards(cards, {
+      ...ctx,
+      query: "部署备忘",
+      activeTags: [],
+      states: { b: { note: "部署备忘：先跑数据库" } },
+      language: "",
+      category: "",
+    }).map((c) => c.slug),
+    ["b"],
+  );
 });

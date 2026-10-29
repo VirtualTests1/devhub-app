@@ -91,7 +91,11 @@ const CARD = {
 };
 
 test("corpus: 条目合并卡片 + 墙上状态 + extras，缺席的字段不写键", () => {
-  const entry = corpusEntryOf(CARD, { alias: "我的", tags: ["网络"] }, { readmeHeadings: ["安装"] });
+  const entry = corpusEntryOf(
+    CARD,
+    { alias: "我的", note: "部署前先备份", tags: ["网络"] },
+    { readmeHeadings: ["安装"] },
+  );
   assert.deepEqual(entry, {
     host: "github.com",
     owner: "o",
@@ -99,6 +103,7 @@ test("corpus: 条目合并卡片 + 墙上状态 + extras，缺席的字段不写
     path: "D:\\项目\\proj_o",
     local: "proj_o",
     alias: "我的",
+    note: "部署前先备份",
     tags: ["网络"],
     readmeHeadings: ["安装"],
   });

@@ -547,6 +547,9 @@ export const useDownloads = create<State>((set, get) => ({
               startedAt: Date.now(),
               cancelRequested: false,
               interrupted: false,
+              // A retry must not silently repeat a destructive overwrite; the
+              // user has to re-confirm that option after seeing the failure.
+              overwrite: false,
               progress: null,
               stages: [],
               lastLine: "",

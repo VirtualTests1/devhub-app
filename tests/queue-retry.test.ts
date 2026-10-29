@@ -34,6 +34,7 @@ test("retryFailed: resets only failed rows and preserves retry inputs", () => {
     ref: "a/b",
     branch: "feature/x",
     targetDir: "D:/x",
+    overwrite: true,
     failure: "boom",
     interrupted: true,
     endedAt: 5,
@@ -50,6 +51,7 @@ test("retryFailed: resets only failed rows and preserves retry inputs", () => {
   assert.equal(at(after, 0).branch, "feature/x");
   assert.equal(at(after, 0).targetDir, "D:/x");
   assert.equal(at(after, 0).interrupted, false);
+  assert.equal(at(after, 0).overwrite, false, "a destructive overwrite needs a fresh confirmation");
   assert.ok(at(after, 0).log.some((l) => l.includes("重新排队")));
   assert.equal(at(after, 1).status, "done", "done rows are untouched");
   assert.equal(at(after, 2).status, "running", "running rows are untouched");

@@ -149,14 +149,15 @@ pub(crate) fn fetch_repo_facts(
     }
     .map_err(|e| format!("无法启动 curl: {e}"))?;
     let raw = String::from_utf8_lossy(&out.stdout).into_owned();
-    let (_, body) = search::split_headers(&raw);
+    let (headers, body) = search::split_headers(&raw);
     let status = search::status_of(&raw);
     if status == Some(200) {
         return parse_repo_facts(&body);
     }
     // Non-200: GitHub's `message` is the sentence worth showing ("Not Found",
     // "API rate limit exceeded…"). A transport failure with no HTTP status keeps
-    // curl's stderr instead of an invented reason.
+    // curl's stderr instead of an invented reason. When the headers say the budget
+    // is spent, append the one hint that tells the user what to do about it.
     if let Ok(parsed) = parse_repo_facts(&body) {
         return Ok(parsed);
     }
@@ -169,7 +170,10 @@ pub(crate) fn fetch_repo_facts(
             (!one.is_empty()).then(|| one.to_string())
         })
         .unwrap_or_else(|| format!("GitHub API 返回 {}", status.map(|s| s.to_string()).unwrap_or("无状态码".into())));
-    Err(detail)
+    Err(match search::rate_limit_hint(&headers) {
+        Some(hint) => format!("{detail}（{hint}）"),
+        None => detail,
+    })
 }
 
 /// The command the add page calls when the user asks for remote facts.

@@ -35,11 +35,11 @@ export function AboutSection() {
     };
   }, []);
 
-  const check = async () => {
+  const check = async (force = false) => {
     setChecking(true);
     setError(null);
     try {
-      const result = await invoke<AppUpdate>("check_app_update");
+      const result = await invoke<AppUpdate>("check_app_update", { force });
       setUpdate(result);
     } catch (e) {
       setUpdate(null);
@@ -48,6 +48,11 @@ export function AboutSection() {
       setChecking(false);
     }
   };
+
+  const checkedAt =
+    update?.checkedAt != null
+      ? new Date(update.checkedAt * 1000).toLocaleTimeString()
+      : null;
 
   return (
     <div data-section="about" className="scroll-mt-3">
@@ -80,6 +85,17 @@ export function AboutSection() {
                   {t("about.openRelease")}
                 </button>
               )}
+              {update && (
+                <button
+                  type="button"
+                  onClick={() => void check(true)}
+                  disabled={checking}
+                  title={t("about.forceHint")}
+                  className="text-caption text-muted-foreground underline decoration-dotted transition-colors hover:text-foreground disabled:opacity-40"
+                >
+                  {t("about.forceCheck")}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void check()}
@@ -95,6 +111,12 @@ export function AboutSection() {
         {error && (
           <p role="alert" className="border-t border-border-weak px-3 py-2 text-caption text-danger">
             {t("about.failed", { msg: error })}
+          </p>
+        )}
+        {checkedAt && (
+          <p className="border-t border-border-weak px-3 py-2 text-caption text-muted-foreground">
+            {t("about.checkedAt", { time: checkedAt })}
+            {update?.fromCache ? ` · ${t("about.cached")}` : ""}
           </p>
         )}
         {update?.available && update.notes.trim() && (

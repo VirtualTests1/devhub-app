@@ -483,6 +483,44 @@ pub fn status_of(raw: &str) -> Option<u16> {
         .and_then(|code| code.parse::<u16>().ok())
 }
 
+/// A readable hint when GitHub says the request budget is exhausted.
+///
+/// `x-ratelimit-remaining: 0` is a fact even on a `200` that happens to answer
+/// (some endpoints report the budget before the refusal), so callers may append
+/// this to any error. `now_epoch` is injected for the test; production passes
+/// the wall clock.
+pub(crate) fn rate_limit_hint_at(
+    headers: &HashMap<String, String>,
+    now_epoch: u64,
+) -> Option<String> {
+    let remaining = headers
+        .get("x-ratelimit-remaining")
+        .and_then(|v| v.trim().parse::<u64>().ok())?;
+    if remaining > 0 {
+        return None;
+    }
+    let minutes = headers
+        .get("x-ratelimit-reset")
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .map(|reset| reset.saturating_sub(now_epoch).div_ceil(60).max(1));
+    Some(match minutes {
+        Some(m) => format!(
+            "GitHub API 限额已用尽，约 {m} 分钟后恢复；可在设置 → 网络填写令牌以提高额度。"
+        ),
+        None => "GitHub API 限额已用尽；可在设置 → 网络填写令牌以提高额度。".to_string(),
+    })
+}
+
+/// [`rate_limit_hint_at`] with the current wall clock.
+pub(crate) fn rate_limit_hint(headers: &HashMap<String, String>) -> Option<String> {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    rate_limit_hint_at(headers, now)
+}
+
 pub(crate) fn which_curl() -> Option<std::path::PathBuf> {
     if let Some(rt) = std::env::var_os("SystemRoot") {
         let p = std::path::PathBuf::from(rt).join("System32/curl.exe");
@@ -1062,8 +1100,7 @@ mod tests {
 
     #[test]
     fn parses_the_rate_limit_error_body_as_throttled() {
-        let body = r#"{"message":"API rate limit exceeded for 1.2.3.4.","documentation_url":"https://docs.github.com/rest"}"#;
-        let r = parse_search_response(body, Some(0), Some(42));
+        let body = r#"{"message":"API rate limit exceeded for 1.2.3.4.","documentation_url":"https://docs.github.com/rest"}"#;        let r = parse_search_response(body, Some(0), Some(42));
         assert!(r.throttled, "a rate-limit message must set throttled");
         assert!(r.items.is_empty());
         assert!(r.error.as_deref().unwrap_or("").contains("rate limit"));
@@ -1130,6 +1167,32 @@ mod tests {
             Some("7")
         );
         assert!(body.starts_with("{\"total_count\""));
+    }
+
+    #[test]
+    fn a_rate_limit_hint_names_the_wait_and_the_way_out() {
+        let mut h = HashMap::new();
+        h.insert("x-ratelimit-remaining".to_string(), "0".to_string());
+        h.insert("x-ratelimit-reset".to_string(), "1000".to_string());
+        let hint = rate_limit_hint_at(&h, 700).expect("exhausted budget must explain itself");
+        assert!(hint.contains("5 分钟"), "{hint}");
+        assert!(hint.contains("令牌"), "{hint}");
+        // Rounded up: 61 seconds is "2 minutes", never "1 minute" that already passed.
+        h.insert("x-ratelimit-reset".to_string(), "761".to_string());
+        assert!(rate_limit_hint_at(&h, 700).unwrap().contains("2 分钟"));
+        // No reset header still gives an actionable sentence.
+        h.remove("x-ratelimit-reset");
+        assert!(rate_limit_hint_at(&h, 700).unwrap().contains("限额已用尽"));
+    }
+
+    #[test]
+    fn a_positive_budget_is_not_a_hint() {
+        let mut h = HashMap::new();
+        h.insert("x-ratelimit-remaining".to_string(), "12".to_string());
+        assert_eq!(rate_limit_hint_at(&h, 1_000), None);
+        assert_eq!(rate_limit_hint_at(&HashMap::new(), 1_000), None);
+        h.insert("x-ratelimit-remaining".to_string(), "not a number".to_string());
+        assert_eq!(rate_limit_hint_at(&h, 1_000), None);
     }
 
     /// The status line and the etag of a `curl -i` capture, read from the last block.

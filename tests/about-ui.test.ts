@@ -17,10 +17,18 @@ const CATALOG = readFileSync("src/settingsCatalog.tsx", "utf8");
 
 test("AboutSection: version read + release check + allowlisted link", () => {
   assert.match(ABOUT, /invoke<string>\("app_version"\)/);
-  assert.match(ABOUT, /invoke<AppUpdate>\("check_app_update"\)/);
+  assert.match(ABOUT, /invoke<AppUpdate>\("check_app_update", \{ force \}\)/);
   assert.match(ABOUT, /openHttpUrl\(update\.url\)/);
   assert.match(ABOUT, /disabled=\{checking\}/);
   assert.match(ABOUT, /t\("about\.failed", \{ msg: error \}\)/);
+});
+
+test("AboutSection: cached answers are dated and can be force-refreshed", () => {
+  assert.match(ABOUT, /update\?\.fromCache/);
+  assert.match(ABOUT, /void check\(true\)/);
+  assert.match(ABOUT, /t\("about\.checkedAt", \{ time: checkedAt \}\)/);
+  assert.equal(tFor("zh-CN", "about.forceCheck"), "强制刷新");
+  assert.equal(tFor("en", "about.cached"), "Cached for 10 minutes");
 });
 
 test("catalog and settings render the about section", () => {

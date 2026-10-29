@@ -806,6 +806,10 @@ export type AppUpdate = {
   notes: string;
   publishedAt: string | null;
   prerelease: boolean;
+  /** Unix seconds of the request behind this answer; null on an old build. */
+  checkedAt?: number | null;
+  /** True when the backend reused its ten-minute cache or a 304. */
+  fromCache?: boolean;
 };
 
 /** Per-repository storage split (r28-N4). */

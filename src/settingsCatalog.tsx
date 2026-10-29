@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import {
   FolderTree,
   History,
+  Info,
   KeyRound,
   LayoutGrid,
   Network,
@@ -40,7 +41,8 @@ export type SettingsSectionId =
   | "deps"
   | "token"
   | "appearance"
-  | "interface";
+  | "interface"
+  | "about";
 
 /**
  * The catalog rows' `label` values are the **pre-wiring zh-CN wording**, kept
@@ -73,6 +75,7 @@ export const SETTINGS_SECTIONS: { id: SettingsSectionId; label: string; icon: Re
   { id: "token", label: "GitHub Token", icon: <KeyRound className="h-3.5 w-3.5" /> },
   { id: "appearance", label: "外观", icon: <Palette className="h-3.5 w-3.5" /> },
   { id: "interface", label: "界面", icon: <SlidersHorizontal className="h-3.5 w-3.5" /> },
+  { id: "about", label: "关于", icon: <Info className="h-3.5 w-3.5" /> },
 ];
 
 export function isSettingsSectionId(id: string): id is SettingsSectionId {

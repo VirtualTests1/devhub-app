@@ -53,6 +53,7 @@ import {
   ThemeGroup,
 } from "./AppearanceView";
 import { InterfaceSection } from "../components/InterfaceRegistry";
+import { AboutSection } from "./settings/AboutSection";
 import { useUI } from "../store/ui";
 import { SaveIndicator, SettingHeadingRow, SettingRowLite } from "./settings/rows";
 import { ProjectsWallSection } from "./settings/ProjectsSection";
@@ -94,6 +95,7 @@ const settingsSearchKeywords = (t: TFunc): Record<SettingsSectionId, readonly st
   token: t("settings.search.kw.token").split(","),
   appearance: t("settings.search.kw.appearance").split(","),
   interface: t("settings.search.kw.interface").split(","),
+  about: t("settings.search.kw.about").split(","),
 });
 
 /**
@@ -1483,6 +1485,8 @@ export function SettingsView({
           <InterfaceSection />
         </>
       )}
+
+      {activeSection === "about" && <AboutSection />}
 
       {error && (
         <div role="alert" className="mb-3 flex items-start gap-2 rounded-lg border border-danger/30 bg-danger/5 p-3 text-caption leading-relaxed text-danger">

@@ -41,6 +41,7 @@ mod search;
 mod search_cmd;
 mod searchgrep;
 mod settings_cmd;
+mod update_check;
 
 // r21-o1-1: names moved into settings_cmd.rs keep resolving at the root.
 use proc::ProcessState;
@@ -4603,6 +4604,8 @@ pub fn run() {
             list_repositories,
             repo_metadata,
             scrub_stored_credentials,
+            update_check::check_app_update,
+            update_check::app_version,
             ensure_git,
             git_bootstrap_status,
             repo_detail,

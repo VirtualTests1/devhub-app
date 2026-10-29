@@ -796,3 +796,14 @@ export type WorktreeRemoveReport = {
   failed: string[];
 };
 
+
+/** Read-only release check result (r28-N1). */
+export type AppUpdate = {
+  current: string;
+  latest: string;
+  available: boolean;
+  url: string;
+  notes: string;
+  publishedAt: string | null;
+  prerelease: boolean;
+};

@@ -27,6 +27,8 @@ import { RepoSyncPanel } from "../components/RepoSyncPanel";
 import { RepoPortPanel } from "../components/RepoPortPanel";
 import { toast } from "../components/Toast";
 import { useAppearance } from "../store/appearance";
+import { browserScheduler } from "../lib/ref-ticker";
+import { browserVisibility, createVisibilityInterval } from "../lib/visibility";
 import { useCustomize, reg } from "../store/customize";
 import { SplitButton } from "./launch/SplitButton";
 import { RunStatus } from "./launch/RunStatus";
@@ -270,11 +272,19 @@ export function LaunchDialog({ slug, onClose }: { slug: string; onClose: () => v
       setLaunchState((s) => (s === "busy" ? "started" : s));
     });
     // One second is coarse enough to be free and fine enough that "it died on
-    // startup" is visible almost immediately after it happens.
-    const timer = window.setInterval(() => void pollProcs(), 1000);
+    // startup" is visible almost immediately after it happens. Hidden windows do
+    // not need the tick; coming back probes once at once (r30-O3).
+    const procsClock = createVisibilityInterval(
+      () => void pollProcs(),
+      1000,
+      browserScheduler,
+      browserVisibility,
+      { fireOnResume: true },
+    );
+    procsClock.start();
     return () => {
       aliveRef.current = false;
-      window.clearInterval(timer);
+      procsClock.stop();
       window.clearTimeout(extrasTimer);
       void un.then((f) => f());
     };

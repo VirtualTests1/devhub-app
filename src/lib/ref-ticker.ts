@@ -20,18 +20,29 @@
  * what makes "the timer stops when the last subscriber leaves" an assertion
  * rather than a paragraph.
  *
+ * ## Hidden means stopped, not slowed (r30-O3)
+ *
+ * The webview runs with background timer throttling disabled, so a clock left
+ * armed while the window is minimised keeps waking it to repaint numbers nobody
+ * can read. `createVisibilityInterval` owns that gate; this ticker passes the
+ * browser source in production and the default `alwaysVisible` in tests. When
+ * the window returns, the interval is re-armed and the version is bumped once so
+ * the visible clock catches up on the first paint.
+ *
  * Deliberately not React: the hook wrapper (`useSyncExternalStore` + the
  * caller's `active` flag) stays at the call site, because the "inactive
  * subscriber shares a constant snapshot" rule is a React detail, not a timer
  * detail, and folding it in here would make the timer testable only through a
  * renderer.
  */
+import {
+  alwaysVisible,
+  createVisibilityInterval,
+  type IntervalScheduler,
+  type VisibilitySource,
+} from "./visibility";
 
-/** The two timer primitives, injected so a test can observe them. */
-export type IntervalScheduler = {
-  setInterval: (cb: () => void, ms: number) => number;
-  clearInterval: (handle: number) => void;
-};
+export type { IntervalScheduler, VisibilitySource } from "./visibility";
 
 /** The browser scheduler — `window` is only read when a timer is actually armed. */
 export const browserScheduler: IntervalScheduler = {
@@ -63,9 +74,9 @@ export type RefTicker = {
 export function createRefTicker(
   scheduler: IntervalScheduler,
   intervalMs: number,
+  visibility: VisibilitySource = alwaysVisible,
 ): RefTicker {
   let version = 0;
-  let handle: number | null = null;
   const listeners = new Set<() => void>();
 
   const tick = () => {
@@ -76,24 +87,27 @@ export function createRefTicker(
     for (const listener of listeners) listener();
   };
 
+  // One interval for the whole ticker. `fireOnResume` bumps the version when
+  // the window comes back, so a visible elapsed clock does not wait a second to
+  // become true again. Start/stop remain refcount-driven at subscribe time.
+  const clock = createVisibilityInterval(tick, intervalMs, scheduler, visibility, {
+    fireOnResume: true,
+  });
+
   return {
     subscribe(onChange) {
       listeners.add(onChange);
-      if (handle === null) handle = scheduler.setInterval(tick, intervalMs);
+      clock.start();
       return () => {
         listeners.delete(onChange);
-        if (listeners.size === 0 && handle !== null) {
-          scheduler.clearInterval(handle);
-          handle = null;
-        }
+        if (listeners.size === 0) clock.stop();
       };
     },
     version: () => version,
     subscriberCount: () => listeners.size,
-    isRunning: () => handle !== null,
+    isRunning: () => clock.isRunning(),
     stop() {
-      if (handle !== null) scheduler.clearInterval(handle);
-      handle = null;
+      clock.stop();
     },
   };
 }

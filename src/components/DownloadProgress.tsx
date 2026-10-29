@@ -27,6 +27,8 @@ import {
 } from "../lib/download-rate";
 import { useI18n } from "../lib/useI18n";
 import type { TFunc } from "../lib/i18n";
+import { browserScheduler } from "../lib/ref-ticker";
+import { browserVisibility, createVisibilityInterval } from "../lib/visibility";
 
 /**
  * Download progress, shown instead of a wall of terminal output.
@@ -171,8 +173,17 @@ export function DownloadProgress({
 
   useEffect(() => {
     if (!busy) return;
-    const t = window.setInterval(() => setSilentMs(Date.now() - lastEventAt.current), 1000);
-    return () => window.clearInterval(t);
+    // A hidden window does not need a "seconds without output" number; the clone
+    // continues in the backend and the elapsed clock is recomputed on return.
+    const clock = createVisibilityInterval(
+      () => setSilentMs(Date.now() - lastEventAt.current),
+      1000,
+      browserScheduler,
+      browserVisibility,
+      { fireOnResume: true },
+    );
+    clock.start();
+    return () => clock.stop();
   }, [busy]);
 
   const stalled = busy && silentMs >= STALL_AFTER_MS;

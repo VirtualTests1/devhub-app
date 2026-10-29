@@ -18,6 +18,7 @@ import { cn } from "../lib/utils";
 import { confirmDestructive } from "../lib/confirm";
 import { slugFromRef } from "../lib/slug";
 import { browserScheduler, createRefTicker } from "../lib/ref-ticker";
+import { browserVisibility } from "../lib/visibility";
 import { rowOwnsKey } from "../lib/useDismiss";
 import { copyLogWithToast } from "../lib/clipboard";
 import { reportError } from "../lib/report-error";
@@ -588,7 +589,7 @@ function StatusDot({ task }: { task: DownloadTask }) {
  * The timer contract is a unit test there now; this file keeps only the React half
  * (the `active` flag and the constant snapshot an idle row reads).
  */
-const secondTicker = createRefTicker(browserScheduler, 1000);
+const secondTicker = createRefTicker(browserScheduler, 1000, browserVisibility);
 
 /** Re-renders the caller once a second while `active`, else never. */
 function useActiveSecond(active: boolean): number {

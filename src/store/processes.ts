@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { reportError } from "../lib/report-error";
 import { browserScheduler, createRefTicker } from "../lib/ref-ticker";
+import { browserVisibility } from "../lib/visibility";
 import type { ProcessState } from "../types";
 
 /**
@@ -353,7 +354,7 @@ export function liveElapsedMs(reportedMs: number, reportedAt: number, now = Date
  * mechanism both this store and the queue used to spell out by hand, and it has
  * the unit test that was missing. This file keeps the React half.
  */
-const processSecondTicker = createRefTicker(browserScheduler, 1000);
+const processSecondTicker = createRefTicker(browserScheduler, 1000, browserVisibility);
 
 /** Re-renders the caller once a second while `active`, else never. */
 export function useProcessSecond(active: boolean): number {

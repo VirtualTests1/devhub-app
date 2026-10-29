@@ -54,6 +54,12 @@ export type WallViewsState = {
   consume: (seq: number) => void;
   /** A manual filter/sort edit no longer matches any named view. */
   clearActive: () => void;
+  /**
+   * Replace the saved list with an imported one (r31-N1). Used by the wall
+   * export/import flow; an empty array is a real "this export had no views"
+   * statement and clears the list.
+   */
+  replaceViews: (views: readonly WallView[]) => void;
 };
 
 function readStored(storage: StorageLike | null): WallView[] {
@@ -144,6 +150,12 @@ export function createWallViewsStore(storage: StorageLike | null = resolveStorag
 
     clearActive: () => {
       if (get().activeId !== null) set({ activeId: null });
+    },
+
+    replaceViews: (views) => {
+      const next = sanitiseViews(views);
+      set({ views: next, activeId: null, applyRequest: null });
+      writeStored(storage, next);
     },
   }));
 }

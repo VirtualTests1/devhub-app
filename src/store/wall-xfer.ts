@@ -1,5 +1,6 @@
 import type { RepoState, WallPrefs } from "./wall";
 import { SORTS, FILTERS, WALL_DENSITIES, sanitiseNote, sanitiseTags } from "./wall";
+import { sanitiseViews, type WallView } from "../lib/wall-views";
 
 /**
  * Portable project-wall export.
@@ -9,12 +10,20 @@ import { SORTS, FILTERS, WALL_DENSITIES, sanitiseNote, sanitiseTags } from "./wa
  * untrusted JSON on load (`sanitiseRepo`); this module is the write/parse side
  * of that same trust boundary, plus a format tag so a random JSON file cannot
  * be mistaken for a wall export.
+ *
+ * r31-N1 adds the saved views as an optional top-level key. The version stays 1
+ * because the change is additive: an old reader ignores an unknown key (the
+ * existing forward-compatibility test pins that), and a file without `views`
+ * must not clear the receiving machine's views. Only a file that explicitly
+ * carries the key replaces them.
  */
 export type WallXfer = {
   format: "devhub-wall";
   version: 1;
   prefs: Pick<WallPrefs, "sort" | "filter" | "grouped" | "density">;
   repos: Record<string, RepoState>;
+  /** Saved wall views; absent in exports written before r31. */
+  views?: WallView[];
 };
 
 export function buildWallXfer(state: {
@@ -23,6 +32,7 @@ export function buildWallXfer(state: {
   grouped: boolean;
   density: WallPrefs["density"];
   repos: Record<string, RepoState>;
+  views?: readonly WallView[];
 }): WallXfer {
   return {
     format: "devhub-wall",
@@ -34,6 +44,7 @@ export function buildWallXfer(state: {
       density: state.density,
     },
     repos: state.repos,
+    ...(state.views === undefined ? {} : { views: state.views.map((v) => ({ ...v, tags: [...v.tags] })) }),
   };
 }
 
@@ -47,6 +58,12 @@ export function buildWallXfer(state: {
 export function parseWallXfer(text: string): {
   prefs: Partial<Pick<WallPrefs, "sort" | "filter" | "grouped" | "density">>;
   repos: Record<string, RepoState>;
+  /**
+   * `undefined` means the file predates views: the caller must leave the
+   * receiving machine's views alone. `[]` means the file explicitly said "no
+   * saved views" and is a real replacement.
+   */
+  views?: WallView[];
 } {
   let raw: unknown;
   try {
@@ -87,7 +104,11 @@ export function parseWallXfer(text: string): {
       if (e) repos[slug] = e;
     }
   }
-  return { prefs, repos };
+  // A present but non-array `views` is treated as absent rather than as "clear
+  // everything": a hostile or hand-edited file must not silently delete saved
+  // views it never described.
+  const views = Array.isArray(obj.views) ? sanitiseViews(obj.views) : undefined;
+  return { prefs, repos, ...(views === undefined ? {} : { views }) };
 }
 
 function sanitiseImportedRepo(v: unknown): RepoState | null {

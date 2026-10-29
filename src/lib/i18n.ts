@@ -2248,6 +2248,7 @@ const ZH = {
   "crash.clearConfirm": "清除后无法恢复这次崩溃的本地记录。确定吗？",
   "crash.cleared": "已清除 {time} 的崩溃报告",
   "crash.clearFailed": "清除失败：{msg}",
+  "pw.importOkViews": "已导入项目墙与 {n} 个视图",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4287,6 +4288,7 @@ const EN_VALUES = [
   "Clearing removes the local record of this crash permanently. Continue?",
   "Cleared the crash report from {time}",
   "Could not clear: {msg}",
+  "Imported the wall and {n} view(s)",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

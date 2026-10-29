@@ -18,6 +18,7 @@ import {
   sanitiseViewName,
   sanitiseViews,
   sameCriteria,
+  type WallView,
   type WallViewCriteria,
 } from "../src/lib/wall-views.ts";
 import { WALL_VIEWS_KEY, createWallViewsStore } from "../src/store/wall-views.ts";
@@ -158,6 +159,33 @@ test("store: apply requests are one-shot and unknown ids are ignored", () => {
   assert.equal(store.getState().applyRequest?.id, saved.view.id, "a stale consume must not clear it");
   store.getState().consume(request?.seq ?? -1);
   assert.equal(store.getState().applyRequest, null);
+});
+
+test("store: replaceViews sanitises, clears active state and persists", () => {
+  const storage = fakeStorage();
+  const store = createWallViewsStore(storage);
+  const saved = store.getState().save("Old", criteria({ query: "old" }));
+  assert.ok(saved.ok);
+  if (!saved.ok) return;
+  store.getState().requestApply(saved.view.id);
+  store.getState().replaceViews([
+    {
+      id: "wv-new",
+      name: "New",
+      query: "new",
+      language: "",
+      category: "",
+      tags: ["a", "a"],
+      sort: "name",
+      filter: "all",
+    } satisfies WallView,
+  ]);
+  assert.deepEqual(store.getState().views.map((v) => v.name), ["New"]);
+  assert.deepEqual(store.getState().views[0]?.tags, ["a"]);
+  assert.equal(store.getState().activeId, null);
+  assert.equal(store.getState().applyRequest, null);
+  const reopened = createWallViewsStore(storage);
+  assert.deepEqual(reopened.getState().views.map((v) => v.name), ["New"]);
 });
 
 test("store: a corrupt payload is an empty list, not a crash", () => {

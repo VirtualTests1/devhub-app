@@ -14,6 +14,7 @@ import {
 } from "../../components/SettingsRows";
 import { messageOf } from "../../lib/report-error";
 import { WALL_DENSITIES, FILTERS, SORTS, slugOf, useWall } from "../../store/wall";
+import { useWallViews } from "../../store/wall-views";
 import { buildWallXfer, parseWallXfer } from "../../store/wall-xfer";
 import type { RepoRef } from "../../types";
 import { useI18n } from "../../lib/useI18n";
@@ -67,6 +68,7 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
         grouped,
         density,
         repos: states,
+        views: useWallViews.getState().views,
       });
       await invoke("write_text_file", {
         path: picked,
@@ -91,9 +93,14 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
     setXferBusy(true);
     try {
       const text = await invoke<string>("read_text_file", { path });
-      const { prefs, repos: nextRepos } = parseWallXfer(text);
+      const { prefs, repos: nextRepos, views } = parseWallXfer(text);
       applyXfer(prefs, nextRepos);
-      toast.success(t("pw.importOk"));
+      // Only a file that actually carried `views` may replace this machine's
+      // list; an older export did not know about views and must leave them be.
+      if (views !== undefined) useWallViews.getState().replaceViews(views);
+      toast.success(
+        views === undefined ? t("pw.importOk") : t("pw.importOkViews", { n: views.length }),
+      );
     } catch (e) {
       toast.error(t("pw.importFail", { reason: messageOf(e) }));
     } finally {

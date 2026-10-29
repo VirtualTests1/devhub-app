@@ -10,6 +10,7 @@ import {
   FileSearch,
   FolderOpen,
   FolderTree,
+  History,
   LoaderCircle,
   Pencil,
   Pin,
@@ -234,6 +235,9 @@ const RepoGrepDialog = lazy(() =>
 const RepoFilesDialog = lazy(() =>
   import("../dialogs/RepoFilesDialog").then((m) => ({ default: m.RepoFilesDialog })),
 );
+const RepoCommitsDialog = lazy(() =>
+  import("../dialogs/RepoCommitsDialog").then((m) => ({ default: m.RepoCommitsDialog })),
+);
 const RepoTagsDialog = lazy(() =>
   import("../components/RepoTagsDialog").then((m) => ({ default: m.RepoTagsDialog })),
 );
@@ -254,6 +258,7 @@ function preloadCardDialogs(): () => void {
     void import("../dialogs/RepoDiagnoseDialog");
     void import("../dialogs/RepoGrepDialog");
     void import("../dialogs/RepoFilesDialog");
+    void import("../dialogs/RepoCommitsDialog");
     void import("../components/RepoTagsDialog");
     void import("../dialogs/WallViewDialog");
   }, 1500);
@@ -347,6 +352,8 @@ export function ProjectsView({
   // 「在项目中搜索」对话框（r21-N1-1）：与诊断同款的按-slug 挂载，卡片给它 root。
   const [grepSlug, setGrepSlug] = useState<string | null>(null);
   const [filesSlug, setFilesSlug] = useState<string | null>(null);
+  /** Which card the read-only 提交历史 dialog is open on (r32-N4). */
+  const [commitsSlug, setCommitsSlug] = useState<string | null>(null);
   /** Which card the 标签… sheet is open on (需求 N3-2). */
   const [tagsSlug, setTagsSlug] = useState<string | null>(null);
   /**
@@ -2062,6 +2069,10 @@ export function ProjectsView({
               setReadmeSlug(menuCard.slug);
               setMenuOpen(false);
             },
+            onCommits: () => {
+              setCommitsSlug(menuCard.slug);
+              setMenuOpen(false);
+            },
             onDiagnose: () => {
               setDiagnoseSlug(menuCard.slug);
               setMenuOpen(false);
@@ -2112,6 +2123,13 @@ export function ProjectsView({
         <RepoReadmeDialog
           card={cards.find((c) => c.slug === readmeSlug) ?? null}
           onClose={() => setReadmeSlug(null)}
+        />
+      )}
+
+      {commitsSlug && (
+        <RepoCommitsDialog
+          card={cards.find((c) => c.slug === commitsSlug) ?? null}
+          onClose={() => setCommitsSlug(null)}
         />
       )}
 
@@ -2206,6 +2224,7 @@ function buildMenu(
     onTags: () => void;
     onSettings: () => void;
     onReadme: () => void;
+    onCommits: () => void;
     onDiagnose: () => void;
     onGrep: () => void;
     onFiles: () => void;
@@ -2254,6 +2273,15 @@ function buildMenu(
       // the dialog's answer to give (it probes the disk), and a row that guessed
       // "no README" without asking would be the silent blank this direction forbids.
       onSelect: ctx.onReadme,
+    },
+    {
+      id: "commits",
+      label: t("commits.menu"),
+      icon: <History className="h-3.5 w-3.5" />,
+      // A history needs a local clone; a remote-only entry has nothing to read.
+      disabled: !card.path,
+      note: card.path ? undefined : t("commits.noPath"),
+      onSelect: ctx.onCommits,
     },
     {
       id: "diagnose",

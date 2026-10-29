@@ -20,6 +20,7 @@ const CARD_DIALOGS = [
   ["RepoDiagnoseDialog", "dialogs/RepoDiagnoseDialog"],
   ["RepoGrepDialog", "dialogs/RepoGrepDialog"],
   ["RepoFilesDialog", "dialogs/RepoFilesDialog"],
+  ["RepoCommitsDialog", "dialogs/RepoCommitsDialog"],
   ["RepoTagsDialog", "components/RepoTagsDialog"],
 ] as const;
 

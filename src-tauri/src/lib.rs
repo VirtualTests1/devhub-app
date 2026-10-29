@@ -10,6 +10,7 @@ mod activity_cmd;
 mod auth;
 mod cache;
 mod clone_hazards;
+mod commits;
 mod covers;
 mod crash;
 mod deps;
@@ -4602,6 +4603,7 @@ pub fn run() {
             docker::project_has_compose,
             deeplink::register_deeplink,
             repo_worktree_status,
+            commits::repo_commits,
             list_pythons,
             set_python_choice,
             create_repo_venv,

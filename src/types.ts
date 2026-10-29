@@ -853,3 +853,13 @@ export type StorageBreakdown = {
   venvBytes: number;
   worktreesBytes: number;
 };
+
+/** One row of the read-only commit history (r32-N4). */
+export type CommitInfo = {
+  hash: string;
+  short: string;
+  author: string;
+  /** Author date, strict ISO 8601 from `%aI`. */
+  date: string;
+  subject: string;
+};

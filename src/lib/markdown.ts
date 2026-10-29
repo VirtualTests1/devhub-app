@@ -34,11 +34,17 @@
  *
  * In: ATX headings (`#`…`######`), paragraphs, unordered/ordered lists (one
  * nesting level), fenced code blocks (```lang), block quotes, horizontal rules,
- * and the inline set code / strong / em / link / image.
+ * GFM tables, task-list items, and the inline set code / strong / em / link /
+ * image.
  *
- * Out, on purpose: reference links, tables, HTML blocks, footnotes, task
- * lists, setext headings, autolinks. A construct that is not recognised is not
- * swallowed — it renders as the plain text it was written as.
+ * Out, on purpose: reference links, HTML blocks, footnotes, setext headings,
+ * autolinks. A construct that is not recognised is not swallowed — it renders
+ * as the plain text it was written as.
+ *
+ * Tables and task lists were added in r31-N2 because README status tables and
+ * TODO lists are common and previously rendered as pipe soup. Both still go
+ * through the same node tree and the same link whitelist; task checkboxes are
+ * read-only.
  *
  * Image syntax is parsed but **not loaded**: an image becomes an `image` node
  * carrying only its alt text, because a README's images point at remote URLs
@@ -55,10 +61,14 @@ export type MdInline =
   /** Alt text only — see the module note: no URL is kept, nothing is fetched. */
   | { type: "image"; alt: string };
 
+export type MdAlign = "left" | "center" | "right" | null;
+
 export type MdListItem = {
   inline: MdInline[];
   /** One nesting level deeper, per the scope above. */
   children: MdListItem[];
+  /** GFM task-list marker; absent on an ordinary list item. */
+  task?: "checked" | "unchecked";
 };
 
 export type MdBlock =
@@ -67,6 +77,7 @@ export type MdBlock =
   | { type: "code"; lang: string; text: string }
   | { type: "quote"; blocks: MdBlock[] }
   | { type: "list"; ordered: boolean; items: MdListItem[] }
+  | { type: "table"; align: MdAlign[]; header: MdInline[][]; rows: MdInline[][][] }
   | { type: "hr" };
 
 /**
@@ -117,6 +128,78 @@ function startsBlock(line: string): boolean {
   return FENCE.test(line) || HEADING.test(line) || HR.test(line) || QUOTE.test(line) || LIST_ITEM.test(line);
 }
 
+/** Split one GFM table row on unescaped pipes; outer pipes are optional. */
+function tableCells(line: string): string[] {
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|") && !s.endsWith("\\|")) s = s.slice(0, -1);
+  const cells: string[] = [];
+  let cur = "";
+  for (let i = 0; i < s.length; i += 1) {
+    const ch = s[i];
+    if (ch === "\\" && s[i + 1] === "|") {
+      cur += "|";
+      i += 1;
+    } else if (ch === "|") {
+      cells.push(cur.trim());
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+/** `:---` left, `:---:` center, `---:` right, `---` default; `null` otherwise. */
+function alignmentOf(cell: string): MdAlign {
+  const t = cell.trim();
+  if (!/^:?-+:?$/.test(t)) return null;
+  const left = t.startsWith(":");
+  const right = t.endsWith(":");
+  if (left && right) return "center";
+  if (left) return "left";
+  if (right) return "right";
+  return null;
+}
+
+/** Is `line` a table delimiter row (and therefore the line below a header)? */
+function isDelimiterRow(line: string, columns: number): boolean {
+  const cells = tableCells(line);
+  return cells.length === columns && cells.every((c) => /^:?-+:?$/.test(c.trim()));
+}
+
+/** One table starting at `lines[i]`, or null when this is an ordinary line. */
+function tableAt(lines: string[], i: number): { block: MdBlock; next: number } | null {
+  const headerLine = lines[i] ?? "";
+  if (!headerLine.includes("|") || startsBlock(headerLine)) return null;
+  const delimiter = lines[i + 1] ?? "";
+  const headerCells = tableCells(headerLine);
+  if (headerCells.length === 0) return null;
+  if (!isDelimiterRow(delimiter, headerCells.length)) return null;
+  const align = tableCells(delimiter).map(alignmentOf);
+  const rows: MdInline[][][] = [];
+  let j = i + 2;
+  while (j < lines.length) {
+    const line = lines[j] ?? "";
+    if (line.trim() === "" || !line.includes("|") || startsBlock(line)) break;
+    const cells = tableCells(line);
+    rows.push(
+      Array.from({ length: headerCells.length }, (_, c) => parseInline(cells[c] ?? "")),
+    );
+    j += 1;
+  }
+  return {
+    block: {
+      type: "table",
+      align,
+      header: headerCells.map((cell) => parseInline(cell)),
+      rows,
+    },
+    next: j,
+  };
+}
+
 /** Parse a whole document. `src` may use any of CRLF / CR / LF. */
 export function parseMarkdown(src: string): MdBlock[] {
   return parseBlocks(src.replace(/\r\n?/g, "\n").split("\n"));
@@ -164,6 +247,16 @@ function parseBlocks(lines: string[]): MdBlock[] {
       continue;
     }
 
+    // A table is two lines by definition: a header row and a delimiter row. It
+    // is checked before a heading/list so a cell's leading `|` is not mistaken
+    // for a block marker; `tableAt` itself refuses a line that starts a block.
+    const table = tableAt(lines, i);
+    if (table) {
+      blocks.push(table.block);
+      i = table.next;
+      continue;
+    }
+
     const heading = HEADING.exec(line);
     if (heading) {
       const level = heading[1]?.length ?? 1;
@@ -197,6 +290,15 @@ function parseBlocks(lines: string[]): MdBlock[] {
         const indent = li[1]?.length ?? 0;
         if (indent < baseIndent) break;
         const node: MdListItem = { inline: parseInline(li[3] ?? ""), children: [] };
+        // GFM task item: `- [ ] todo` / `- [x] done`. Only unordered lists;
+        // an ordered `1. [x]` is ordinary text, as it is in GitHub's renderer.
+        if (!ordered) {
+          const task = /^\[([ xX])\][ \t]+(.*)$/.exec(li[3] ?? "");
+          if (task) {
+            node.task = task[1] === " " ? "unchecked" : "checked";
+            node.inline = parseInline(task[2] ?? "");
+          }
+        }
         const prev = indent >= baseIndent + 2 ? items[items.length - 1] : undefined;
         if (prev) {
           // One indentation step deeper → a child of the item above.

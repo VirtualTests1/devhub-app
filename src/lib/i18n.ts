@@ -2261,6 +2261,8 @@ const ZH = {
   "batch.skippedDetail": "已停止，未执行",
   "batch.skippedCount": "未执行 {n}",
   "batch.rowSkippedTail": "{text}，{n} 个未执行（已停止）",
+  "readme.taskDone": "已完成的任务",
+  "readme.taskOpen": "未完成的任务",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4313,6 +4315,8 @@ const EN_VALUES = [
   "Stopped; not started",
   "Not run: {n}",
   "{text}; {n} not run (stopped)",
+  "Completed task",
+  "Open task",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

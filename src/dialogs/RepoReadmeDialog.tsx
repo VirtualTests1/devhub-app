@@ -242,6 +242,41 @@ function renderBlock(b: MdBlock, key: number, t: TFunc): ReactNode {
       );
     case "hr":
       return <hr key={key} className="my-3 border-border-weak" />;
+    case "table":
+      return (
+        <div key={key} className="my-2 overflow-x-auto">
+          <table className="w-full border-collapse text-caption">
+            <thead>
+              <tr>
+                {b.header.map((cell, i) => (
+                  <th
+                    key={i}
+                    style={{ textAlign: b.align[i] ?? undefined }}
+                    className="border border-border-weak bg-muted/30 px-2 py-1 text-left font-medium text-foreground"
+                  >
+                    {renderInline(cell, t, `th${key}-${i}`)}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {b.rows.map((row, r) => (
+                <tr key={r}>
+                  {row.map((cell, c) => (
+                    <td
+                      key={c}
+                      style={{ textAlign: b.align[c] ?? undefined }}
+                      className="border border-border-weak px-2 py-1 align-top text-foreground"
+                    >
+                      {renderInline(cell, t, `td${key}-${r}-${c}`)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
   }
 }
 
@@ -266,6 +301,16 @@ function Heading({ level, children }: { level: number; children: ReactNode }) {
 function ListItem({ item, t }: { item: MdListItem; t: TFunc }) {
   return (
     <li className="text-body leading-relaxed">
+      {item.task && (
+        <input
+          type="checkbox"
+          checked={item.task === "checked"}
+          disabled
+          readOnly
+          aria-label={item.task === "checked" ? t("readme.taskDone") : t("readme.taskOpen")}
+          className="mr-1.5 h-3 w-3 align-[-1px] accent-primary"
+        />
+      )}
       {renderInline(item.inline, t, "li")}
       {item.children.length > 0 && (
         <ul className="list-disc pl-5">

@@ -53,7 +53,10 @@ function inlineTypes(blocks: MdBlock[]): string[] {
     for (const b of bs) {
       if (b.type === "heading" || b.type === "paragraph") walk(b.inline);
       else if (b.type === "quote") visit(b.blocks);
-      else if (b.type === "list")
+      else if (b.type === "table") {
+        for (const cell of b.header) walk(cell);
+        for (const row of b.rows) for (const cell of row) walk(cell);
+      } else if (b.type === "list")
         for (const item of b.items) {
           walk(item.inline);
           for (const child of item.children) walk(child.inline);
@@ -140,6 +143,46 @@ test("lists: unordered with one nesting level; ordered detected by the marker", 
   if (first.type !== "list") return;
   assert.equal(first.ordered, true);
   assert.equal(first.items.length, 2);
+});
+
+test("tables: header, alignment, escaped pipes, short rows and inline cells", () => {
+  const blocks = parseMarkdown(
+    "| Name | Value |\n| :--- | ---: |\n| a \\| b | **bold** |\n| short |",
+  );
+  const table = blockAt(blocks, 0);
+  assert.equal(table.type, "table");
+  if (table.type !== "table") return;
+  assert.deepEqual(table.align, ["left", "right"]);
+  assert.deepEqual(table.header.map(inlineText), ["Name", "Value"]);
+  assert.equal(table.rows.length, 2);
+  assert.deepEqual(table.rows[0]?.map(inlineText), ["a | b", "bold"]);
+  assert.deepEqual(table.rows[1]?.map(inlineText), ["short", ""], "a missing cell is padded, not a shifted row");
+  assert.equal(table.rows[0]?.[1]?.[0]?.type, "strong");
+});
+
+test("tables: a delimiter of the wrong width is not a table", () => {
+  const blocks = parseMarkdown("| a | b |\n| --- |\n");
+  assert.equal(blockAt(blocks, 0).type, "paragraph");
+});
+
+test("task lists: markers are stripped and checked/unchecked are distinct", () => {
+  const blocks = parseMarkdown("- [ ] todo\n- [x] done\n  - [X] nested");
+  const list = blockAt(blocks, 0);
+  assert.equal(list.type, "list");
+  if (list.type !== "list") return;
+  assert.equal(list.items[0]?.task, "unchecked");
+  assert.equal(list.items[1]?.task, "checked");
+  assert.equal(inlineText(list.items[0]?.inline ?? []), "todo");
+  assert.equal(inlineText(list.items[1]?.inline ?? []), "done");
+  assert.equal(list.items[1]?.children[0]?.task, "checked");
+  assert.equal(inlineText(list.items[1]?.children[0]?.inline ?? []), "nested");
+  // An ordered list keeps `[x]` as ordinary text, like GitHub.
+  const ordered = parseMarkdown("1. [x] not a task");
+  const first = blockAt(ordered, 0);
+  assert.equal(first.type, "list");
+  if (first.type !== "list") return;
+  assert.equal(first.items[0]?.task, undefined);
+  assert.equal(inlineText(first.items[0]?.inline ?? []), "[x] not a task");
 });
 
 // ---------------------------------------------------------------------------
@@ -317,7 +360,10 @@ function allInline(blocks: MdBlock[]): MdInline[] {
     for (const b of bs) {
       if (b.type === "heading" || b.type === "paragraph") walk(b.inline);
       else if (b.type === "quote") visit(b.blocks);
-      else if (b.type === "list")
+      else if (b.type === "table") {
+        for (const cell of b.header) walk(cell);
+        for (const row of b.rows) for (const cell of row) walk(cell);
+      } else if (b.type === "list")
         for (const item of b.items) {
           walk(item.inline);
           for (const child of item.children) walk(child.inline);

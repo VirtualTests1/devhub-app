@@ -1934,7 +1934,7 @@ pub struct ClearReport {
     pub failed: Vec<String>,
 }
 
-fn dir_size(path: &Path) -> u64 {
+pub(crate) fn dir_size(path: &Path) -> u64 {
     let mut total = 0u64;
     let mut stack = vec![path.to_path_buf()];
     while let Some(d) = stack.pop() {

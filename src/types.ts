@@ -807,3 +807,12 @@ export type AppUpdate = {
   publishedAt: string | null;
   prerelease: boolean;
 };
+
+/** Per-repository storage split (r28-N4). */
+export type StorageBreakdown = {
+  totalBytes: number;
+  repoBytes: number;
+  cacheBytes: number;
+  venvBytes: number;
+  worktreesBytes: number;
+};

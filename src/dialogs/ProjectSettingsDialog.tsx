@@ -6,6 +6,7 @@ import { DialogShell } from "../components/DialogShell";
 import { PathInput } from "../components/PathInput";
 import { RepoPythonPanel } from "../components/RepoPythonPanel";
 import { RepoWorktreesPanel } from "../components/RepoWorktreesPanel";
+import { RepoStoragePanel } from "../components/RepoStoragePanel";
 import { RepoComposePanel } from "../components/RepoComposePanel";
 import { ChoiceRow, FieldRow, SettingRow, SwitchRow } from "../components/SettingsRows";
 import { MenuSelect } from "../components/Controls";
@@ -784,6 +785,8 @@ export function ProjectSettingsDialog({
           {t("psd.pyNoteTail")}
         </p>
       </section>
+
+      <RepoStoragePanel slug={slug} />
 
       <section className="mt-4">
         <h3 className="skin-label mb-1 text-caption text-muted-foreground">{t("wt.title")}</h3>

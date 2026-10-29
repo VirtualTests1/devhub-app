@@ -53,6 +53,7 @@ pub use headless::*;
 // r21-o1-3: same contract for the `--cover-check` probe, now living in covers.rs.
 pub use covers::run_headless_cover_check;
 mod stars;
+mod storage_cmd;
 
 use downloader::{
     discover_local_proxy, find_git, resolve_agreed_ip, DownloadOutcome, Downloader,
@@ -4604,6 +4605,7 @@ pub fn run() {
             list_repositories,
             repo_metadata,
             scrub_stored_credentials,
+            storage_cmd::repo_storage_breakdown,
             update_check::check_app_update,
             update_check::app_version,
             ensure_git,

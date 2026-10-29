@@ -27,6 +27,7 @@ import { DownloadProgress } from "./DownloadProgress";
 import { toast } from "./Toast";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { countByStatus, useDownloads, type DownloadTask } from "../store/downloads";
+import { useDownloadHistory } from "../store/download-history";
 import { QUEUE_FINISHED_CAP } from "../lib/queue-retention";
 import { buildDownloadDiagnostics } from "../lib/download-diagnostics";
 import { reg } from "../store/customize";
@@ -71,6 +72,8 @@ export function DownloadQueue() {
   const clearFinished = useDownloads((s) => s.clearFinished);
   const retryFailed = useDownloads((s) => s.retryFailed);
   const maxParallel = useDownloads((s) => s.maxParallel);
+  const history = useDownloadHistory((s) => s.entries);
+  const clearHistory = useDownloadHistory((s) => s.clear);
   const setOpenSlug = useUI((s) => s.setOpenSlug);
   const { t } = useI18n();
 
@@ -111,7 +114,7 @@ export function DownloadQueue() {
   // used to make its 打开项目/重新下载 items answer to a stale status.
   const openMenu = useCallback((id: string, x: number, y: number) => setMenu({ id, x, y }), []);
 
-  if (ids.length === 0) return null;
+  if (ids.length === 0 && history.length === 0) return null;
 
   return (
     <section
@@ -195,6 +198,7 @@ export function DownloadQueue() {
               onOpenProject={setOpenSlug}
             />
           ))}
+          {history.length > 0 && <QueueHistory entries={history} onClear={clearHistory} />}
         </div>
       )}
 
@@ -589,6 +593,73 @@ function QueueAction({
       {icon}
       {label}
     </button>
+  );
+}
+
+/**
+ * Settled rows from previous sessions. Read-only on purpose: a finished row is
+ * evidence, and re-adding it would start a clone nobody asked for. The log tail
+ * is the part 记录 does not keep.
+ */
+function QueueHistory({
+  entries,
+  onClear,
+}: {
+  entries: ReturnType<typeof useDownloadHistory.getState>["entries"];
+  onClear: () => void;
+}) {
+  const { t } = useI18n();
+  return (
+    <details className="mt-3 rounded-lg border border-border-weak bg-background/60">
+      <summary className="cursor-pointer px-2.5 py-1.5 text-caption text-muted-foreground">
+        {t("queue.historyTitle", { n: entries.length })}
+      </summary>
+      <div className="space-y-1 border-t border-dashed border-border-weak px-2.5 py-1.5">
+        <ul className="space-y-1">
+          {entries.map((e) => (
+            <li key={e.id} className="flex items-center gap-2 text-caption">
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 shrink-0 rounded-full",
+                  e.status === "done" ? "bg-success" : "bg-muted-foreground",
+                )}
+                aria-hidden="true"
+              />
+              <code className="min-w-0 flex-1 truncate font-medium">{e.ref}</code>
+              <span className="shrink-0 text-muted-foreground">{statusWord(t, e.status)}</span>
+              <time
+                className="shrink-0 tabular-nums text-muted-foreground"
+                dateTime={new Date(e.endedAt).toISOString()}
+              >
+                {new Date(e.endedAt).toLocaleTimeString()}
+              </time>
+              <button
+                type="button"
+                onClick={() =>
+                  void copyLogWithToast(
+                    e.logTail.split("\n").filter(Boolean),
+                    t("queue.historyCopyHint"),
+                  )
+                }
+                disabled={!e.logTail}
+                aria-label={t("queue.historyCopyAria", { ref: e.ref })}
+                title={t("queue.historyCopy")}
+                className="shrink-0 rounded p-0.5 text-muted-foreground/60 transition-colors hover:text-foreground disabled:opacity-30"
+              >
+                <ScrollText className="h-3 w-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-caption text-muted-foreground underline decoration-dotted hover:text-foreground"
+        >
+          {t("queue.historyClear")}
+        </button>
+      </div>
+    </details>
   );
 }
 

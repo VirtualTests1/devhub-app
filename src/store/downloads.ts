@@ -12,6 +12,7 @@ import {
   takeRecovered,
   writeRecovered,
 } from "../lib/download-recovery";
+import { useDownloadHistory } from "./download-history";
 
 /**
  * The download queue.
@@ -507,6 +508,10 @@ export const useDownloads = create<State>((set, get) => ({
       };
     });
     persistRecovery(get().tasks);
+    const settled = get().tasks.find((t) => t.id === id);
+    if (settled && (settled.status === "done" || settled.status === "cancelled")) {
+      useDownloadHistory.getState().record(settled);
+    }
     pump();
   },
 

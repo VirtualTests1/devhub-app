@@ -2063,6 +2063,21 @@ const CURL_TRANSIENT_EXIT_CODES: &[i32] = &[28, 52, 56];
 /// GitHub instability this downloader exists to absorb, so they are retried in
 /// place before falling through to the next layer. Authentication and
 /// protocol errors are NOT retried - retrying cannot help and only adds delay.
+/// Does this failure come from git-lfs failing to check out an object?
+///
+/// Measured on 2026-10-29 (`docs/research/lfs-submodules.md`): a missing LFS
+/// object makes `git clone` exit 128 with `smudge filter lfs failed` and
+/// `git-lfs filter-process` in stderr, while the repository directory already
+/// exists. Retrying with `GIT_LFS_SKIP_SMUDGE=1` turns that into a successful
+/// checkout with pointer files, which the post-clone hazard detector then warns
+/// about.
+pub(crate) fn is_lfs_smudge_failure(run: &GitRun) -> bool {
+    let blob = format!("{} {}", run.stderr_tail, run.stdout_tail).to_ascii_lowercase();
+    blob.contains("smudge filter lfs failed")
+        || blob.contains("git-lfs filter-process")
+        || (blob.contains("git lfs") && blob.contains("smudge"))
+}
+
 fn is_transient_failure(run: &GitRun) -> bool {
     let blob = format!("{} {}", run.stderr_tail, run.stdout_tail).to_ascii_lowercase();
     const TRANSIENT: &[&str] = &[
@@ -3046,6 +3061,7 @@ fn run_git_streaming(
     stage: &str,
     auth: Option<(&str, &str)>,
     cancel: &CancelToken,
+    extra_env: Option<(&str, &str)>,
 ) -> Result<GitRun, DownloadError> {
     let mut cmd = git_cmd(git);
     cmd.args(args)
@@ -3055,6 +3071,9 @@ fn run_git_streaming(
     // Never let git block on an interactive credential prompt.
     cmd.env("GIT_TERMINAL_PROMPT", "0");
     cmd.env("GIT_ASKPASS", "");
+    if let Some((key, value)) = extra_env {
+        cmd.env(key, value);
+    }
     apply_git_auth(&mut cmd, auth);
     if let Some(d) = cwd {
         cmd.current_dir(d);
@@ -4473,7 +4492,7 @@ impl Downloader {
             });
 
             let started = Instant::now();
-            let run = match run_git_streaming(
+            let mut run = match run_git_streaming(
                 progress.clone(),
                 git_path,
                 &args,
@@ -4481,6 +4500,7 @@ impl Downloader {
                 "clone",
                 auth_ref,
                 &self.cancel,
+                None,
             ) {
                 Ok(r) => r,
                 Err(e) => {
@@ -4532,6 +4552,79 @@ impl Downloader {
                         "debug",
                         &format!("stderr 摘要：{}", truncate(&redact_secrets(diag), 300)),
                     );
+                }
+            }
+
+            // Git LFS's smudge failure is a checkout failure, not a transport
+            // failure: the repository exists but the working tree cannot be
+            // produced. A second clone with smudge skipped keeps the usable
+            // files, leaves pointers for the LFS objects, and the post-clone
+            // hazard detector reports that honestly. Any other failure follows
+            // the existing transient/non-transient path untouched.
+            let lfs_checkout_failed = !run.ok
+                && (is_lfs_smudge_failure(&run)
+                    || (target.join(".git").exists()
+                        && crate::clone_hazards::declares_lfs(
+                            &std::fs::read_to_string(target.join(".gitattributes")).unwrap_or_default(),
+                        )));
+            if lfs_checkout_failed {
+                progress(
+                    "clone",
+                    "Git LFS smudge 失败，改用 GIT_LFS_SKIP_SMUDGE=1 重试（保留指针并提示）",
+                );
+                let _ = std::fs::remove_dir_all(target);
+                let retry_started = Instant::now();
+                match run_git_streaming(
+                    progress.clone(),
+                    git_path,
+                    &args,
+                    None,
+                    "clone",
+                    auth_ref,
+                    &self.cancel,
+                    Some(("GIT_LFS_SKIP_SMUDGE", "1")),
+                ) {
+                    Ok(skip) if skip.ok => {
+                        total_ms += retry_started.elapsed().as_millis();
+                        if let Some(n) = clone_strategy_note(
+                            &self.config.clone_strategy,
+                            &skip.stderr_tail,
+                            git_path,
+                            target,
+                        ) {
+                            notes.push(n);
+                        }
+                        notes.push("Git LFS 对象未拉取（跳过 smudge，保留指针）".to_string());
+                        notes.push(format!("第 {attempt} 次成功"));
+                        let mut detail = format!("{} 用时 {total_ms}ms", git_version);
+                        if !notes.is_empty() {
+                            detail.push_str(&format!("（{}）", notes.join("; ")));
+                        }
+                        settled = Some(AttemptRecord {
+                            layer,
+                            label: label.clone(),
+                            ok: true,
+                            detail,
+                            ms: total_ms,
+                        });
+                        return true;
+                    }
+                    Ok(skip) => {
+                        total_ms += retry_started.elapsed().as_millis();
+                        progress("debug", &format!("{label}：跳过 smudge 的重试仍失败"));
+                        run = skip;
+                    }
+                    Err(e) => {
+                        let _ = std::fs::remove_dir_all(target);
+                        settled = Some(AttemptRecord {
+                            layer,
+                            label: label.clone(),
+                            ok: false,
+                            detail: format!("LFS smudge 重试失败: {e}"),
+                            ms: total_ms,
+                        });
+                        return true;
+                    }
                 }
             }
 
@@ -4898,6 +4991,7 @@ mod tests {
             "clone",
             None,
             &token,
+            None,
         );
         flipper.join().expect("cancel thread");
         assert!(
@@ -5091,6 +5185,95 @@ mod tests {
     fn a_host_with_no_entry_is_a_miss() {
         let cache = DnsCache::default();
         assert!(cache.get("api.github.com", Instant::now()).is_none());
+    }
+
+    #[test]
+    fn lfs_smudge_failure_is_recognised_but_other_failures_are_not() {
+        let run = |tail: &str| GitRun {
+            ok: false,
+            code: Some(128),
+            stderr_tail: tail.into(),
+            stdout_tail: String::new(),
+        };
+        assert!(is_lfs_smudge_failure(&run(
+            "error: external filter 'git-lfs filter-process' failed\nfatal: blob.bin: smudge filter lfs failed"
+        )));
+        assert!(is_lfs_smudge_failure(&run("Git LFS smudge failed")));
+        assert!(!is_lfs_smudge_failure(&run("fatal: Authentication failed")));
+        assert!(!is_lfs_smudge_failure(&run("fatal: repository not found")));
+    }
+
+    #[test]
+    fn a_lfs_smudge_failure_falls_back_to_a_pointer_clone() {
+        let Some(gh) = find_git(None) else { return };
+        let git = std::path::Path::new(&gh.path);
+        let root = std::env::temp_dir().join(format!("devhub-lfs-retry-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let src = root.join("source");
+        std::fs::create_dir_all(&src).unwrap();
+        let run = |args: &[&str]| {
+            git_cmd(git)
+                .args(args)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        if !run(&["-C", &src.to_string_lossy(), "init", "-q"])
+            || !run(&["-C", &src.to_string_lossy(), "lfs", "install", "--local"])
+        {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        std::fs::write(src.join(".gitattributes"), "*.bin filter=lfs diff=lfs merge=lfs -text\n").unwrap();
+        std::fs::write(
+            src.join("blob.bin"),
+            "version https://git-lfs.github.com/spec/v1\noid sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nsize 12\n",
+        )
+        .unwrap();
+        if !run(&["-C", &src.to_string_lossy(), "add", "."])
+            || !run(&[
+                "-C",
+                &src.to_string_lossy(),
+                "-c",
+                "user.email=a@b",
+                "-c",
+                "user.name=a",
+                "commit",
+                "-qm",
+                "init",
+            ])
+        {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+
+        let target = root.join("landing");
+        let file_url = format!("file:///{}", src.to_string_lossy().replace('\\', "/"));
+        let cfg = DownloaderConfig {
+            project_root: root.clone(),
+            ..Default::default()
+        };
+        let dl = Downloader::new(cfg, None).expect("downloader");
+        let r = parse_ref("alice/tool").expect("ref");
+        let progress: ProgressFn = std::sync::Arc::new(|_: &str, _: &str| {});
+        let attempt = dl
+            .try_git(
+                progress,
+                &r,
+                &target,
+                DownloadLayer::Direct,
+                "lfs-test",
+                &[],
+                Some(&file_url),
+                None,
+            )
+            .expect("try_git")
+            .expect("attempt");
+        assert!(attempt.ok, "missing LFS object should fall back to a pointer clone: {attempt:?}");
+        let blob = std::fs::read_to_string(target.join("blob.bin")).expect("pointer file");
+        assert!(blob.starts_with("version https://git-lfs.github.com/spec/v1"));
+        assert!(attempt.detail.contains("LFS"), "detail names the skip: {}", attempt.detail);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

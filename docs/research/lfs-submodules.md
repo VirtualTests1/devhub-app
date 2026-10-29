@@ -12,6 +12,8 @@
 
 DevHub 不自动执行 `git lfs pull` 或 `git submodule update --init`。这两件事会把额外的网络、凭据和供应链面引入一次“下载仓库”操作；本轮的交付是**有界检测 + 明确警告**（`src-tauri/src/clone_hazards.rs` + 下载完成卡片上的黄色标记），不是自动拉取。
 
+r31-R1 补上了第 5 条路径：克隆因 LFS smudge 失败时，`try_git` 会用 `GIT_LFS_SKIP_SMUDGE=1` 再克隆一次。成功则保留指针文件并继续走同一套 hazard 警告（完成卡片会显示“Git LFS 指针 N 个”）；再次失败才回到原来的非瞬时失败路径。这个回退只在错误文本命中 smudge 症状，或失败目标里已经出现 `.git` + 声明 LFS 的 `.gitattributes` 时触发——后者覆盖了本机 fixture 中 stderr 没有进入 tail 的情况。它仍不取回对象，也不把指针伪装成完整文件。
+
 ## 2. 可复现实验
 
 以下命令在 Git Bash 中执行；`<tmp>` 取任意临时目录的 Windows 路径，`file:///<tmp>` 是 Git 接受的本地 URL 形式。
@@ -57,7 +59,8 @@ DevHub 不自动执行 `git lfs pull` 或 `git submodule update --init`。这两
 
 ## 5. 未解决/未验证
 
-- **LFS smudge 失败会让 `git clone` 退出 128，当前 `finish()` 不会执行**，因此检测与警告不会出现在这条路径上。是否要把“LFS checkout 失败”降级为“带指针的成功 + 警告”，需要单独决定（会改变下载层级对失败的判定）。本文只记录事实，不把设想写成已完成。
+- 回退只重试一次，且只在失败目标已经有 `.git` 与 LFS `.gitattributes` 时也会触发；一个在 LFS 仓库中因其他原因失败的克隆会多付一次 skip-smudge 尝试（失败成本已由 `try_git` 的时间和层级逻辑约束）。
+- 本地 `file://` fixture 的第一次克隆 stderr 没有进入 `GitRun` 的 tail（已观察），所以实现同时用目标状态识别 LFS checkout 失败；真实 GitHub 大仓库上的错误文本与目标状态组合未单独测量。
 - 没有真实 GitHub 大仓库、真实 submodule 网络的端到端验证；实验全部是本地 `file://` fixture。
 - 检测上限 500 个 tracked 文件：LFS 文件排在 500 名之后时可能漏报。
 - 未做 GUI 真机验证；本轮只验证了 Rust 单测、前端类型检查与构建级测试。

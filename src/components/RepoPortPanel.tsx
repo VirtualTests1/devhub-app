@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openHttpUrl } from "../lib/external-url";
 import { CircleCheck, ExternalLink, LoaderCircle, Radio, TriangleAlert } from "lucide-react";
 import { createPollLoop } from "../lib/poll-loop";
 import { messageOf } from "../lib/report-error";
@@ -172,7 +172,7 @@ export function RepoPortPanel({ slug, active }: { slug: string; active: boolean 
                 {h.listening && (
                   <button
                     type="button"
-                    onClick={() => void openUrl(`http://127.0.0.1:${h.port}`)}
+                    onClick={() => void openHttpUrl(`http://127.0.0.1:${h.port}`)}
                     title={t("port.openTitle", { url: `http://127.0.0.1:${h.port}` })}
                     className="ml-0.5 flex shrink-0 items-center gap-0.5 rounded px-1 hover:bg-black/10"
                   >

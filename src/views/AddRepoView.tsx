@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openHttpUrl } from "../lib/external-url";
 import { invoke } from "@tauri-apps/api/core";
 import {
   ChevronDown,
@@ -898,7 +898,7 @@ function SearchBlock({
 
   /** What a click on the row itself does — the configurable part. */
   const onRowClick = (fullName: string) => {
-    if (resultClick === "browser") void openUrl(`https://github.com/${fullName}`);
+    if (resultClick === "browser") void openHttpUrl(`https://github.com/${fullName}`);
     else if (resultClick === "readme") void openReadme(fullName);
     else {
       setQ(fullName);
@@ -1246,7 +1246,7 @@ function SearchBlock({
                   <span className="flex items-center gap-1 opacity-0 transition-opacity duration-[var(--motion-quick)] group-hover:opacity-100 group-focus-within:opacity-100">
                   <IconBtn
                     title={t("sp.openTitle")}
-                    onClick={() => void openUrl(`https://github.com/${h.fullName}`)}
+                    onClick={() => void openHttpUrl(`https://github.com/${h.fullName}`)}
                   >
                     <ExternalLink className="h-3 w-3" />
                   </IconBtn>

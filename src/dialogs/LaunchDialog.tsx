@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openHttpUrl } from "../lib/external-url";
 import {
   Check,
   CircleCheck,
@@ -1008,7 +1008,7 @@ export function LaunchDialog({ slug, onClose }: { slug: string; onClose: () => v
                   <button
                     type="button"
                     className="ml-2 text-primary underline-offset-2 hover:underline"
-                    onClick={() => void openUrl(g.url as string)}
+                    onClick={() => void openHttpUrl(g.url as string)}
                   >
                     {t("launch.openHomepage")}
                   </button>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openHttpUrl } from "../lib/external-url";
 import { LoaderCircle } from "lucide-react";
 import { DialogShell } from "../components/DialogShell";
 import { parseMarkdown, type MdBlock, type MdInline, type MdListItem } from "../lib/markdown";
@@ -309,7 +309,7 @@ function renderInline(nodes: MdInline[], t: TFunc, prefix: string): ReactNode[] 
             title={t("readme.openLink", { href: n.href })}
             onClick={(e) => {
               e.preventDefault();
-              void openUrl(n.href);
+              void openHttpUrl(n.href);
             }}
             className="text-primary underline decoration-dotted"
           >

@@ -304,7 +304,6 @@ const ZH = {
   "psd.clipboardDenied": "剪贴板不可用",
   "psd.copyPath": "路径",
   "psd.copyUrl": "地址",
-  "psd.openLinkFailed": "打开链接失败",
   "psd.refreshFailed": "刷新项目信息失败",
   "psd.alias": "别名",
   "psd.aliasHint": "只显示在这个项目墙上；真实的仓库名仍然排在第二行，避免卡片把自己的身份藏起来。",
@@ -2117,6 +2116,8 @@ const ZH = {
   "sync.recent": "新提交（{n}）",
   "iface.attentionTitle": "后台完成时闪烁任务栏",
   "iface.attentionHint": "窗口不在前台时，下载或批量更新结束后请求一次任务栏注意；失败总会提示，成功在 15 秒内最多一次。",
+  "app.linkBlocked": "已阻止打开非 http(s) 链接",
+  "app.openLinkFailed": "打开链接失败：{msg}",
   "app.credentialsScrubbed": "已从 {n} 个仓库的 git 配置中移除旧的 GitHub 令牌",
 } as const;
 
@@ -2323,7 +2324,6 @@ const EN_VALUES = [
   "Clipboard unavailable",
   "the path",
   "the URL",
-  "Failed to open the link",
   "Failed to refresh the project info",
   "Alias",
   "Shown only on this project wall; the real repository name still sits on the second line, so a card never hides its identity.",
@@ -4026,6 +4026,8 @@ const EN_VALUES = [
   "New commits ({n})",
   "Flash the taskbar when background work finishes",
   "While the window is in the background, a finished download or batch update asks for attention once; failures always, successes at most once per 15 seconds.",
+  "Blocked a non-http(s) link",
+  "Could not open the link: {msg}",
   "Removed an old GitHub token from {n} repositories' git config",
 ] as const;
 

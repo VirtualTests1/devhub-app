@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openHttpUrl } from "../lib/external-url";
 import { BookOpen, Copy, Eye, FolderOpen, FolderTree, Hash, Image as ImageIcon, Pin, Rocket, StickyNote, Terminal } from "lucide-react";
 import { DialogShell } from "../components/DialogShell";
 import { PathInput } from "../components/PathInput";
@@ -636,13 +636,7 @@ export function ProjectSettingsDialog({
               detail?.url ? (
                 <button
                   type="button"
-                  onClick={() =>
-                    // 没有协议处理器时 opener 会 reject；一句「打开链接失败」比
-                    // 点了没反应诚实。
-                    void openUrl(detail.url).catch((err) =>
-                      reportError(err, t("psd.openLinkFailed")),
-                    )
-                  }
+                  onClick={() => void openHttpUrl(detail.url)}
                   className="truncate text-left text-primary underline decoration-dotted"
                   title={detail.url}
                 >

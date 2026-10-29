@@ -1,5 +1,5 @@
 import { ExternalLink, X } from "lucide-react";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openHttpUrl } from "../lib/external-url";
 import { useEffect, useId, useRef } from "react";
 import { cn } from "../lib/utils";
 import { useSelfClosing } from "../lib/motion";
@@ -167,7 +167,7 @@ export function DialogShell({
                 type="button"
                 id={titleId}
                 {...reg("launch-title")}
-                onClick={() => void openUrl(titleHref)}
+                onClick={() => void openHttpUrl(titleHref)}
                 title={t("dialog.openInBrowser", { href: titleHref })}
                 className="group flex min-w-0 items-center gap-1.5 text-left"
               >

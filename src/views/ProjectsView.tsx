@@ -95,7 +95,7 @@ import {
   type RepoState,
   type SortId,
 } from "../store/wall";
-import { openUrl } from "@tauri-apps/plugin-opener";
+import { openHttpUrl } from "../lib/external-url";
 import { fmtRelative } from "../lib/format";
 import { windowGroups } from "../lib/wall-window";
 import { useWallWindow } from "../lib/use-wall-window";
@@ -1993,7 +1993,7 @@ function buildMenu(
       label: t("menu.homepage"),
       icon: <Search className="h-3.5 w-3.5" />,
       note: `${card.owner}/${card.repo}`,
-      onSelect: () => void openUrl(`https://${card.host}/${card.owner}/${card.repo}`),
+      onSelect: () => void openHttpUrl(`https://${card.host}/${card.owner}/${card.repo}`),
     },
     {
       id: "readme",

@@ -240,6 +240,13 @@ test("isSafeHref: only http/https, case-insensitively, brackets tolerated", () =
   assert.equal(isSafeHref("#anchor"), null);
   assert.equal(isSafeHref("./relative.md"), null);
   assert.equal(isSafeHref(""), null);
+  // r30-R2: a scheme without an authority is not a web address. `https:foo`
+  // and an empty host used to pass the old scheme-only check.
+  assert.equal(isSafeHref("https:javascript:alert(1)"), null);
+  assert.equal(isSafeHref("https://"), null);
+  assert.equal(isSafeHref("https://\u0000javascript:alert(1)"), null);
+  assert.equal(isSafeHref("https://example.com/\tpath"), null);
+  assert.equal(isSafeHref("https://example.com/path"), "https://example.com/path");
 });
 
 test("no node type is ever an HTML carrier", () => {
@@ -276,4 +283,112 @@ test("empty and whitespace-only input produce nothing", () => {
 test("CRLF and lone CR both normalise, so Windows checkouts parse the same", () => {
   assert.deepEqual(parseMarkdown("a\r\nb"), parseMarkdown("a\nb"));
   assert.deepEqual(parseMarkdown("a\rb"), parseMarkdown("a\nb"));
+});
+
+// ---------------------------------------------------------------------------
+// 5. Adversarial corpus (r30-R2)
+//
+// The parser is safe by construction (typed nodes, no HTML carrier, href
+// whitelist). This section attacks the other property a document from the
+// network can violate: it can be arbitrarily shaped. The invariant checked over
+// every generated tree is the one the renderer depends on — every `link.href`
+// is one `isSafeHref` would return — plus a depth bound and the absence of any
+// unknown node type.
+
+function maxInlineDepth(nodes: MdInline[], depth = 1): number {
+  let max = depth;
+  for (const node of nodes) {
+    if (node.type === "strong" || node.type === "em" || node.type === "link") {
+      max = Math.max(max, maxInlineDepth(node.children, depth + 1));
+    }
+  }
+  return max;
+}
+
+function allInline(blocks: MdBlock[]): MdInline[] {
+  const out: MdInline[] = [];
+  const walk = (nodes: MdInline[]) => {
+    for (const n of nodes) {
+      out.push(n);
+      if (n.type === "strong" || n.type === "em" || n.type === "link") walk(n.children);
+    }
+  };
+  const visit = (bs: MdBlock[]) => {
+    for (const b of bs) {
+      if (b.type === "heading" || b.type === "paragraph") walk(b.inline);
+      else if (b.type === "quote") visit(b.blocks);
+      else if (b.type === "list")
+        for (const item of b.items) {
+          walk(item.inline);
+          for (const child of item.children) walk(child.inline);
+        }
+    }
+  };
+  visit(blocks);
+  return out;
+}
+
+test("adversarial: a pointer-run of emphasis cannot recurse without bound", () => {
+  for (const src of [
+    `${"*".repeat(4_000)}x${"*".repeat(4_000)}`,
+    `${"*a".repeat(2_000)}${"*".repeat(2_000)}`,
+    `${"[".repeat(2_000)}x${"]".repeat(2_000)}(https://example.com)`,
+  ]) {
+    const blocks = parseMarkdown(src);
+    const inline = allInline(blocks);
+    assert.ok(maxInlineDepth(inline) <= 34, `depth escaped the bound: ${maxInlineDepth(inline)}`);
+    // The parser must finish and keep the text, not throw or drop the tail.
+    assert.ok(inlineText(blocks.flatMap((b) => (b.type === "paragraph" ? b.inline : []))).length > 0);
+  }
+});
+
+test("adversarial: link hrefs are always what the whitelist would return", () => {
+  // Deterministic pseudo-random corpus: the alphabet includes the characters
+  // that switch the inline scanner into a link, an image, emphasis or code.
+  let seed = 0x30_2e_0a_29;
+  const rand = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed;
+  };
+  const alphabet = "ab[]()!*:`:/\\\t\n <>\"'#?&=.%_-";
+  for (let caseNo = 0; caseNo < 500; caseNo += 1) {
+    const len = rand() % 140;
+    let src = "";
+    for (let i = 0; i < len; i += 1) src += alphabet[rand() % alphabet.length] ?? "a";
+    const blocks = parseMarkdown(src);
+    for (const node of allInline(blocks)) {
+      assert.ok(
+        ["text", "code", "strong", "em", "link", "image"].includes(node.type),
+        `unknown node type ${node.type}`,
+      );
+      if (node.type === "link") {
+        assert.equal(isSafeHref(node.href), node.href, `href escaped the whitelist: ${node.href}`);
+        assert.match(node.href, /^https?:\/\//i);
+      }
+    }
+    assert.ok(maxInlineDepth(allInline(blocks)) <= 34);
+  }
+});
+
+test("adversarial: scheme obfuscation never becomes a link", () => {
+  const targets = [
+    "\u0000javascript:alert(1)",
+    "\u000bjavascript:alert(1)",
+    "java\tscript:alert(1)",
+    "java\nscript:alert(1)",
+    "&#106;avascript:alert(1)",
+    "jAvA\u200bscript:alert(1)",
+    "//evil.example/x",
+    "\\\\evil.example\\x",
+    "https:\u0000javascript:alert(1)",
+  ];
+  for (const target of targets) {
+    const blocks = parseMarkdown(`[label](${target})`);
+    for (const node of allInline(blocks)) {
+      if (node.type === "link") assert.match(node.href, /^https?:\/\//i);
+    }
+    // A safe `http(s)` scheme is allowed even if its path contains odd bytes;
+    // the browser still receives an http(s) URL, not a script scheme.
+    assert.ok(isSafeHref(target) === null || /^https?:/i.test(target.trim()));
+  }
 });

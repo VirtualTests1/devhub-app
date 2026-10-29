@@ -82,10 +82,28 @@ export function isSafeHref(raw: string): string | null {
   // CommonMark allows `<https://…>`; the angle brackets are delimiters, not part
   // of the URL.
   if (url.startsWith("<") && url.endsWith(">")) url = url.slice(1, -1).trim();
-  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):/.exec(url);
-  if (!m) return null; // scheme-less (relative path, `#anchor`, bare host) → degrade
+  // Require the authority marker, not just a scheme. `https:javascript:…` has an
+  // `https` scheme but no `//`, which the URL parser treats as an opaque path
+  // rather than a web address; accepting it would let the row show a link that
+  // is not the http(s) document the whitelist promises. r30-R2 found this with
+  // the adversarial corpus.
+  const m = /^([a-zA-Z][a-zA-Z0-9+.-]*):\/\//.exec(url);
+  if (!m) return null;
   const scheme = m[1]?.toLowerCase() ?? "";
-  return scheme === "http" || scheme === "https" ? url : null;
+  if (scheme !== "http" && scheme !== "https") return null;
+  // A control byte has no place in a URL a person is about to open. Some URL
+  // parsers strip tab/newline silently; refusing here keeps the rendered target
+  // and the opened target the same string.
+  if (/[\u0000-\u001f\u007f]/.test(url)) return null;
+  try {
+    const parsed = new URL(url);
+    if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") || !parsed.hostname) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return url;
 }
 
 const FENCE = /^\s{0,3}(`{3,}|~{3,})[ \t]*(.*)$/;
@@ -210,8 +228,22 @@ function parseBlocks(lines: string[]): MdBlock[] {
  * Inline scanner. Every character that is not part of a recognised construct is
  * appended to a text buffer — that is why raw HTML and unknown syntax survive as
  * literal text rather than disappearing.
+ *
+ * ## Depth bound (r30-R2)
+ *
+ * Strong/em/link nodes carry children, and each wrapper recursively parses its
+ * own body. A README can therefore choose the nesting depth: a long run of
+ * asterisks (`"*".repeat(n) + "x" + "*".repeat(n)`) is enough to recurse until
+ * the webview's stack gives out while merely opening a read-only preview. The
+ * parser cannot know whether a document is 12 levels of emphasis or a denial of
+ * service, so it stops descending at [`MAX_INLINE_DEPTH`] and keeps the rest of
+ * that body as literal text: the preview stays readable and no input can turn
+ * into unbounded recursion.
  */
-function parseInline(text: string): MdInline[] {
+const MAX_INLINE_DEPTH = 32;
+
+function parseInline(text: string, depth = 0): MdInline[] {
+  if (depth > MAX_INLINE_DEPTH) return [{ type: "text", text }];
   const out: MdInline[] = [];
   let buf = "";
   const flush = () => {
@@ -256,10 +288,10 @@ function parseInline(text: string): MdInline[] {
       if (link) {
         flush();
         const href = isSafeHref(link[2] ?? "");
-        if (href) out.push({ type: "link", href, children: parseInline(link[1] ?? "") });
+        if (href) out.push({ type: "link", href, children: parseInline(link[1] ?? "", depth + 1) });
         // Degrade: keep the label as plain text, drop the URL entirely, so a
         // `javascript:` target can never reach a renderer as a link node.
-        else out.push(...parseInline(link[1] ?? ""));
+        else out.push(...parseInline(link[1] ?? "", depth + 1));
         i += link[0]?.length ?? 1;
         continue;
       }
@@ -272,7 +304,7 @@ function parseInline(text: string): MdInline[] {
       const end = text.indexOf("**", i + 2);
       if (end > i) {
         flush();
-        out.push({ type: "strong", children: parseInline(text.slice(i + 2, end)) });
+        out.push({ type: "strong", children: parseInline(text.slice(i + 2, end), depth + 1) });
         i = end + 2;
         continue;
       }
@@ -286,7 +318,7 @@ function parseInline(text: string): MdInline[] {
       // `end > i + 1` refuses an empty `**` and a run of bare asterisks.
       if (end > i + 1) {
         flush();
-        out.push({ type: "em", children: parseInline(text.slice(i + 1, end)) });
+        out.push({ type: "em", children: parseInline(text.slice(i + 1, end), depth + 1) });
         i = end + 1;
         continue;
       }

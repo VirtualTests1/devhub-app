@@ -53,7 +53,6 @@ const originals: Record<string, string> = {
   "psd.clipboardDenied": "剪贴板不可用",
   "psd.copyPath": "路径",
   "psd.copyUrl": "地址",
-  "psd.openLinkFailed": "打开链接失败",
   "psd.refreshFailed": "刷新项目信息失败",
   "psd.alias": "别名",
   "psd.aliasHint": "只显示在这个项目墙上；真实的仓库名仍然排在第二行，避免卡片把自己的身份藏起来。",
@@ -159,7 +158,7 @@ const reused: Record<string, string> = {
 };
 
 test("i18n: 项目设置对话框接线搬进词表的每个中文字面量逐字节不变（r21-o2-1）", () => {
-  assert.equal(Object.keys(originals).length, 86, "词表里的 psd.* 条目数与这张表对不上");
+  assert.equal(Object.keys(originals).length, 85, "词表里的 psd.* 条目数与这张表对不上");
   for (const [key, expected] of Object.entries(originals)) {
     assert.ok(isTranslationKey(key), `${key} is not a registered key`);
     assert.equal(tFor("zh-CN", key), expected, `${key} moved off its pre-wiring wording`);

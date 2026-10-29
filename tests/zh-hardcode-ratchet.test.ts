@@ -67,7 +67,8 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 
 /**
- * 当前实测上限（r27-O4-3 收尾后 **31**；`pnpm i18n:coverage` 可复测）。
+ * 当前实测上限（r28 增加 settingsCatalog 的「关于」目录行后 **32**；该行是数据表，
+ * 不是可翻译的渲染面，与其余 31 行同类；`pnpm i18n:coverage` 可复测）。
  *
  * 剩下的 31 行全部是**持久化/协议数据**，不是可翻译的界面文案：
  * settingsCatalog 14（目录 id→标题表，与 `sectionTitle` 的 fallback 同源）、
@@ -76,7 +77,7 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
  * 活动归档的来源名）、AppearanceView 1（导入模版的兜底名）、RecordsView 1（来源名）。
  * 把它们换成 `t()` 会让「按字节匹配旧数据」的路径断掉。只许改小。
  */
-const BASELINE = 31;
+const BASELINE = 32;
 
 /** 一行里出现任意 CJK 统一表意文字即算「含中文」。 */
 const ZH = /[\u4e00-\u9fff]/;

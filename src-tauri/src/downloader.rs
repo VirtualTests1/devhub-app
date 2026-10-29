@@ -5276,6 +5276,67 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
+    /// Git's SHA-256 object format produces 64-character ids. Every commit field
+    /// this app stores is a string and every display path uses `%h`/`short_hash`,
+    /// so the format should work unchanged - but "should" is what this test exists
+    /// to replace with a measured answer on the installed git.
+    ///
+    /// Skips when the local git predates `--object-format=sha256` (2.29+); the
+    /// repository's own installation is bundled/current.
+    #[test]
+    fn sha256_repositories_parse_like_sha1_ones() {
+        let Some(gh) = find_git(None) else { return };
+        let git = std::path::Path::new(&gh.path);
+        let root = std::env::temp_dir().join(format!("devhub-sha256-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo");
+        let repo_s = repo.to_string_lossy().to_string();
+        let run = |args: &[&str]| {
+            git_cmd(git)
+                .args(args)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        };
+        let out = |args: &[&str]| {
+            git_cmd(git)
+                .args(args)
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        };
+        if !run(&["init", "-q", "--object-format=sha256", &repo_s]) {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        std::fs::write(repo.join("a.txt"), b"one").unwrap();
+        if !run(&["-C", &repo_s, "add", "."])
+            || !run(&["-C", &repo_s, "-c", "user.name=A", "-c", "user.email=a@example.invalid", "commit", "-qm", "one"])
+        {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        let first = out(&["-C", &repo_s, "rev-parse", "HEAD"]).expect("first head");
+        assert_eq!(first.len(), 64, "SHA-256 object ids are 64 hex characters: {first}");
+        std::fs::write(repo.join("a.txt"), b"two").unwrap();
+        if !run(&["-C", &repo_s, "add", "."])
+            || !run(&["-C", &repo_s, "-c", "user.name=A", "-c", "user.email=a@example.invalid", "commit", "-qm", "two"])
+        {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        let second = out(&["-C", &repo_s, "rev-parse", "HEAD"]).expect("second head");
+        assert_eq!(second.len(), 64);
+        assert_eq!(count_commits(&repo, &first, &second), Some(1), "rev-list counts across SHA-256 ids");
+        let recent = recent_commits(&repo, &first, &second, 10);
+        assert_eq!(recent.len(), 1, "the update summary parses a SHA-256 log line");
+        assert!(!recent[0].hash.is_empty());
+        assert_eq!(short_hash(&second).len(), 7, "display abbreviation still comes from git/7 chars");
+        assert_eq!(is_shallow_repository(git, &repo), Some(false));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
     #[test]
     fn is_transient_failure_reads_the_instability_symptoms() {
         let run = |tail: &str| GitRun {

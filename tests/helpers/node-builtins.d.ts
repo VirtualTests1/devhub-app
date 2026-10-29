@@ -99,6 +99,8 @@ declare module "node:fs" {
   export function existsSync(path: string): boolean;
   /** Used by `checkers.test.ts` to build the hooks-state fixtures in the temp dir. */
   export function writeFileSync(path: string, data: string): void;
+  /** Only the release-manifest link test uses this; the target/type are platform-provided. */
+  export function symlinkSync(target: string, path: string, type?: "dir" | "file" | "junction"): void;
   /** `recursive: true` only — the suite never creates a tree it does not name. */
   export function mkdirSync(path: string, options?: { recursive?: boolean }): void;
   /** The only way to get a collision-free fixture path without a third-party dep. */

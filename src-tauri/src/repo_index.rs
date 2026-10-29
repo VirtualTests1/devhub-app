@@ -201,6 +201,18 @@ fn scan_root(root: &Path) -> RootIndex {
     entries.sort_by(|a, b| a.repo_ref.slug().cmp(&b.repo_ref.slug()));
     entries.dedup_by(|a, b| a.repo_ref.slug() == b.repo_ref.slug());
 
+    // A skipped junction is not an error, but it is the reason a directory the
+    // user can see in Explorer is absent from the wall. Say it once per scan
+    // instead of leaving the difference unexplained.
+    if stats.reparse_skipped > 0 {
+        eprintln!(
+            "[repo-index] {} skipped {} junction/symlink director(ies) under {}",
+            std::process::id(),
+            stats.reparse_skipped,
+            root.display()
+        );
+    }
+
     RootIndex {
         root: root.to_string_lossy().to_string(),
         containers: stats.containers,

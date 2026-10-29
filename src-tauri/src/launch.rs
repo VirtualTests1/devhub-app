@@ -1944,6 +1944,11 @@ pub(crate) fn dir_size(path: &Path) -> u64 {
         };
         for e in entries.flatten() {
             let p = e.path();
+            // Windows junctions report as directories; following one can count
+            // another tree or cycle. The same guard is used by the wall's scan.
+            if crate::disk::is_reparse_point(&p) {
+                continue;
+            }
             match e.file_type() {
                 Ok(t) if t.is_dir() => stack.push(p),
                 Ok(t) if t.is_file() => {
@@ -2048,6 +2053,9 @@ pub fn has_cache(root: &Path) -> bool {
         for e in entries.flatten() {
             let p = e.path();
             if !p.is_dir() {
+                continue;
+            }
+            if crate::disk::is_reparse_point(&p) {
                 continue;
             }
             let name = e.file_name().to_string_lossy().to_string();

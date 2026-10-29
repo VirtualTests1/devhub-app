@@ -170,6 +170,12 @@ fn dir_size(path: &Path) -> u64 {
             if ft.is_symlink() {
                 continue;
             }
+            // A Windows junction is `is_dir()` but not `is_symlink()`; without
+            // this guard a repository that links a shared node_modules (or an
+            // ancestor) would count another tree's bytes or loop forever.
+            if crate::disk::is_reparse_point(&e.path()) {
+                continue;
+            }
             if ft.is_dir() {
                 stack.push(e.path());
             } else if ft.is_file() {

@@ -1127,6 +1127,8 @@ pub struct WalkStats {
     pub repos: u64,
     /// Directories skipped by the depth bound.
     pub depth_cuts: u64,
+    /// Directory junctions/symlinks skipped instead of descended into (r31-O1).
+    pub reparse_skipped: u64,
     /// Every directory that was opened, with the child names it held, so a later
     /// check can tell whether the set of repositories changed.
     pub containers: Vec<ContainerStamp>,
@@ -1168,6 +1170,14 @@ where
 {
     if depth > 5 || !dir.is_dir() {
         stats.depth_cuts += 1;
+        return;
+    }
+    // The root itself may be a junction (a user can point the container at
+    // another volume), so only children are refused. A repository that is a
+    // junction is skipped too: following it would report the same clone twice
+    // and can cycle through a junction that points at an ancestor.
+    if depth > 0 && crate::disk::is_reparse_point(dir) {
+        stats.reparse_skipped += 1;
         return;
     }
     // A repository is reported and never descended into: everything inside it
@@ -6110,6 +6120,33 @@ mod tests {
             Some(r"C:\Python312\python.exe")
         );
         assert_eq!(after.port_base, 20000, "the port block survives");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_is_not_reported_as_a_second_repository() {
+        let root = std::env::temp_dir().join(format!("devhub-walk-reparse-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let repo = root.join("repo_alice");
+        std::fs::create_dir_all(repo.join(".git")).unwrap();
+        let link = root.join("linked");
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&repo)
+            .status();
+        if !matches!(status, Ok(s) if s.success()) {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+
+        let mut found: Vec<std::path::PathBuf> = Vec::new();
+        let mut stats = WalkStats::default();
+        collect_repos_counted(&root, &mut |_rel, abs| found.push(abs.to_path_buf()), &mut stats);
+        assert_eq!(found, vec![repo.clone()], "a junction must not be walked into and reported twice");
+        assert_eq!(stats.reparse_skipped, 1);
+
         let _ = std::fs::remove_dir_all(&root);
     }
 }

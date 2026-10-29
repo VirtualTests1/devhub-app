@@ -11,6 +11,39 @@
 
 use std::path::{Path, PathBuf};
 
+/// Windows `FILE_ATTRIBUTE_REPARSE_POINT`. A junction and a symlink both set it;
+/// `FileType::is_symlink()` alone does not catch a junction.
+#[cfg(windows)]
+const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+
+/// Is this path a directory junction/symlink rather than a real directory?
+///
+/// The project container on this machine shares `node_modules` between worktrees
+/// with junctions (8,536 reparse points were measured in the r24 layout). A
+/// recursive walk that descends into one can visit the same tree twice, count
+/// another project's bytes as this one's, or — with a junction pointing at an
+/// ancestor — never finish. Every recursive walk in the backend asks this before
+/// descending.
+///
+/// `symlink_metadata` is deliberate: `metadata` follows the link, which is the
+/// thing we are trying to detect.
+#[cfg(windows)]
+pub(crate) fn is_reparse_point(path: &Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    std::fs::symlink_metadata(path)
+        .map(|m| m.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0)
+        .unwrap_or(false)
+}
+
+/// Non-Windows equivalent: a symlink is the only reparse-like entry we can
+/// create/observe here.
+#[cfg(not(windows))]
+pub(crate) fn is_reparse_point(path: &Path) -> bool {
+    std::fs::symlink_metadata(path)
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+}
+
 #[cfg(windows)]
 #[link(name = "kernel32")]
 extern "system" {
@@ -104,5 +137,33 @@ mod tests {
         if space_for(Path::new("Q:\\devhub-probe")).is_none() {
             assert_eq!(space_for(Path::new("Q:\\devhub-probe")), None);
         }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_junction_is_recognised_as_a_reparse_point() {
+        let root = std::env::temp_dir().join(format!("devhub-reparse-{}", std::process::id()));
+        let target = root.join("target");
+        let link = root.join("link");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&target).expect("target");
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .status();
+        let Ok(status) = status else {
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        };
+        if !status.success() {
+            // Junction creation can be disabled by policy; the check still has
+            // to be exercised on machines where it is available.
+            let _ = std::fs::remove_dir_all(&root);
+            return;
+        }
+        assert!(is_reparse_point(&link));
+        assert!(!is_reparse_point(&target));
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

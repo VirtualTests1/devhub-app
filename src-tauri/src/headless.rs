@@ -303,6 +303,7 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
     let mut dirs = 0u64;
     let mut repos = 0u64;
     let mut markers = 0u64;
+    let mut reparse = 0u64;
     let mut hits_total = 0usize;
     let mut n_total = 0usize;
 
@@ -367,11 +368,13 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
         dirs = dirs.max(stats.dirs_visited);
         repos = repos.max(stats.repos);
         markers = markers.max(read_markers);
+        reparse = reparse.max(stats.reparse_skipped);
     }
 
     println!("dirs_visited_max = {dirs}");
     println!("repos_max = {repos}");
     println!("markers_read_per_walk = {markers}");
+    println!("reparse_skipped_max = {reparse}");
     println!("worst_walk_ms = {worst_walk}");
     println!("worst_list_ms = {worst_list}");
     println!("worst_lookup_all_slugs_ms = {worst_lookup}");

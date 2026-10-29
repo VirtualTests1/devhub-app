@@ -782,9 +782,20 @@ pub fn purge(path: &Path, keep_days: u32) -> Result<usize, String> {
 /// BOM stays part of the first cell rather than leaking into the id values.
 /// Every string field is quoted and internal quotes are doubled; `ts` stays a
 /// bare integer so a spreadsheet sorts it numerically instead of as text.
+///
+/// Quoting alone does not stop a spreadsheet formula: Excel and LibreOffice
+/// evaluate a quoted cell that begins with `=`, `+`, `-`, `@`, a tab or a CR.
+/// Repo aliases, launch commands and setting values are user text and can begin
+/// with any of those, so the field is prefixed with an apostrophe before it is
+/// quoted (OWASP CSV Injection). A leading apostrophe is the established
+/// mitigation and reads as text, not as part of the value.
 pub fn to_csv(entries: &[ActivityEntry]) -> String {
     fn field(value: &str) -> String {
-        format!("\"{}\"", value.replace('"', "\"\""))
+        let mut text = value.to_string();
+        if matches!(text.chars().next(), Some('=' | '+' | '-' | '@' | '\t' | '\r')) {
+            text.insert(0, '\'');
+        }
+        format!("\"{}\"", text.replace('"', "\"\""))
     }
     let mut out = String::from(
         "\u{feff}id,ts,tag,action,detail,slug,source,path,target,before,after\r\n",
@@ -1538,5 +1549,25 @@ mod tests {
         );
         assert!(text.contains("\"a\"\"b\""), "id quote doubled");
         assert!(text.ends_with("\r\n"), "RFC 4180 row terminator");
+    }
+
+    #[test]
+    fn csv_neutralises_formula_prefixes_before_quoting() {
+        let mut e = entry(0, "download", "=HYPERLINK(\"http://example.invalid\")", "");
+        e.detail = "+1+1".into();
+        e.slug = "-2+3".into();
+        e.path = "@SUM(A1)".into();
+        e.target = "\t=cmd".into();
+        e.source = "\r=cmd".into();
+        // A value that merely contains a formula later is not a formula cell.
+        e.before = "ok =cmd".into();
+        let text = super::to_csv(&[e]);
+        assert!(text.contains("\"'=HYPERLINK(\"\"http://example.invalid\"\")\""), "{text}");
+        assert!(text.contains("\"'+1+1\""), "{text}");
+        assert!(text.contains("\"'-2+3\""), "{text}");
+        assert!(text.contains("\"'@SUM(A1)\""), "{text}");
+        assert!(text.contains("\"'\t=cmd\""), "a leading tab is also a formula path: {text}");
+        assert!(text.contains("\"'\r=cmd\""), "a leading CR is also a formula path: {text}");
+        assert!(text.contains("\"ok =cmd\""), "only the first character decides: {text}");
     }
 }

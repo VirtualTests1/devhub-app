@@ -27,6 +27,7 @@ import { toast } from "./Toast";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { countByStatus, useDownloads, type DownloadTask } from "../store/downloads";
 import { QUEUE_FINISHED_CAP } from "../lib/queue-retention";
+import { buildDownloadDiagnostics } from "../lib/download-diagnostics";
 import { reg } from "../store/customize";
 import { useUI } from "../store/ui";
 import { useI18n } from "../lib/useI18n";
@@ -79,6 +80,28 @@ export function DownloadQueue() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
 
+  /**
+   * Whole-queue diagnostics, not just the row that failed.
+   *
+   * A failure's cause often sits in an earlier line or in the fact that three
+   * tasks failed the same way, so the report is built from the store's current
+   * tasks. The version read is best-effort: an old backend without `app_version`
+   * must not make the copy action fail.
+   */
+  const copyDiagnostics = async () => {
+    try {
+      const version = await invoke<string>("app_version").catch(() => "?");
+      const text = buildDownloadDiagnostics(useDownloads.getState().tasks, {
+        appVersion: version,
+        platform: navigator.userAgent,
+      });
+      await navigator.clipboard.writeText(text);
+      toast.success(t("queue.diagnosticsCopied"));
+    } catch {
+      toast.error(t("queue.diagnosticsClipboardDenied"));
+    }
+  };
+
   const toggle = useCallback(
     (id: string, next: boolean) => setExpanded((m) => ({ ...m, [id]: next })),
     [],
@@ -127,11 +150,20 @@ export function DownloadQueue() {
         {tally.failed > 0 && (
           <button
             type="button"
+            onClick={() => void copyDiagnostics()}
+            className="ml-auto text-caption text-muted-foreground underline decoration-dotted hover:text-foreground"
+          >
+            {t("queue.copyDiagnostics")}
+          </button>
+        )}
+        {tally.failed > 0 && (
+          <button
+            type="button"
             onClick={() => {
               const n = retryFailed();
               if (n > 0) toast.success(t("queue.retryQueued", { n }));
             }}
-            className="ml-auto text-caption text-muted-foreground underline decoration-dotted hover:text-foreground"
+            className="text-caption text-muted-foreground underline decoration-dotted hover:text-foreground"
           >
             {t("queue.retryFailed", { n: tally.failed })}
           </button>

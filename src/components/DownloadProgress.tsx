@@ -29,6 +29,7 @@ import { useI18n } from "../lib/useI18n";
 import type { TFunc } from "../lib/i18n";
 import { browserScheduler } from "../lib/ref-ticker";
 import { browserVisibility, createVisibilityInterval } from "../lib/visibility";
+import { failureHintForKey, failureInfoOf, failureLabelForKey } from "../lib/download-diagnostics";
 
 /**
  * Download progress, shown instead of a wall of terminal output.
@@ -424,6 +425,17 @@ export function DownloadProgress({
           <pre className="mt-2 whitespace-pre-wrap break-all text-caption leading-relaxed text-muted-foreground">
             {failure}
           </pre>
+          {(() => {
+            const info = failureInfoOf(failure, log);
+            return (
+              <p className="mt-2 border-t border-danger/20 pt-2 text-caption leading-relaxed text-muted-foreground">
+                {t("dl.failureHint", {
+                  kind: failureLabelForKey(info.kind),
+                  hint: failureHintForKey(info.kind),
+                })}
+              </p>
+            );
+          })()}
         </div>
       )}
 

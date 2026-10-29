@@ -11,6 +11,13 @@ on:
     branches: [master]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   # Tauri 2 的构建脚本在 CI 上不需要本机那套 MSVC 手工补丁，但要显式给出前端产物目录，
   # 避免 `beforeBuildCommand` 与 `frontendDist` 路径在任何工作目录下漂移。
@@ -20,19 +27,22 @@ jobs:
   web:
     name: 前端（tsc + vite + node:test + 不变量检查）
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           # 本机实测版本（`pnpm install` 结尾打印 "using pnpm v10.33.0"）。
-          # package.json 里没有 packageManager 字段，所以这里必须写死，否则 CI 与本地的
-          # 解析器版本会漂移，lockfile 校验（--frozen-lockfile）会以一种谁也复现不了的方式失败。
+          # package.json 里有 packageManager 字段，但 CI 仍显式锁定版本，避免 runner
+          # 预装的 pnpm 与本地解析器漂移导致 lockfile 校验以不可复现的方式失败。
           version: 10.33.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
           # `--experimental-strip-types` 在 Node 22.18+ 才有；本仓 tests 依赖它直接跑 .ts。
           # 若将来升到 23.6+/24，这个 flag 变成默认行为，脚本仍然可用。
 
@@ -84,21 +94,24 @@ jobs:
   native:
     name: 后端（cargo test --lib）
     runs-on: windows-latest
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 与 web job 同版本锁定。以前这里裸跑 `pnpm install`——runner 预装的 pnpm
       # 版本不保证与 web job 一致，lockfile 校验可能以一种 web job 没有的方式失败。
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       # env.ps1 是给**这台机器**用的：DEVELOPMENT.md §1 记录了本机 vcvars64.bat 损坏、
       # 三套 VS 里 `vswhere -latest` 指向不能编 C++ 的那套。GitHub 的 windows runner 带
@@ -139,16 +152,19 @@ jobs:
   lint:
     name: ESLint
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 
@@ -161,16 +177,19 @@ jobs:
   supply-chain:
     name: Rust 依赖供应链（r19-D3）
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.33.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
 
       - run: pnpm install --frozen-lockfile
 

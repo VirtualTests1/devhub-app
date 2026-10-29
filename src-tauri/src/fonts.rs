@@ -32,7 +32,7 @@ pub struct FontFamilyInfo {
 
 /// The frontend may call this repeatedly while filtering; parse the registry
 /// once per process.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn list_system_fonts() -> Vec<FontFamilyInfo> {
     static CACHE: OnceLock<Vec<FontFamilyInfo>> = OnceLock::new();
     CACHE.get_or_init(load_families).clone()

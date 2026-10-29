@@ -148,7 +148,7 @@ pub async fn mark_activity_undone(id: String) -> Result<bool, String> {
 ///
 /// It writes only to the activity log: it cannot change settings, which is the
 /// whole reason a webview-originated record is safe to accept.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn log_activity(
     tag: String,
     action: String,

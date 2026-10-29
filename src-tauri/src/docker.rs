@@ -101,7 +101,7 @@ fn compose_probe() -> (Option<String>, Option<String>) {
 }
 
 /// 后端命令：返回当前 Docker 状态快照。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn docker_status() -> DockerStatus {
     let cli_found = which("docker").is_some();
     let (daemon_running, daemon_error) = if cli_found {
@@ -146,7 +146,7 @@ pub fn docker_status() -> DockerStatus {
 }
 
 /// 检查一个目录里有没有 docker-compose.yml 或 compose.yaml。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn project_has_compose(path: String) -> Option<String> {
     let dir = Path::new(&path);
     for name in ["docker-compose.yml", "docker-compose.yaml", "compose.yaml", "compose.yml"] {

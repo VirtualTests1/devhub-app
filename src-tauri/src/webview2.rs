@@ -183,7 +183,7 @@ pub fn info() -> WebView2Info {
 }
 
 /// Read-only command for 设置 → 关于 and the diagnostics export.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn webview2_info() -> WebView2Info {
     info()
 }

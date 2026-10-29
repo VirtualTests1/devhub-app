@@ -67,12 +67,12 @@ pub async fn custom_cover(
     .map_err(|e| format!("封面任务异常: {e}"))?
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn cover_cache_size() -> u64 {
     ogimage::cache_size(&crate::project_root())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_cover_cache() -> Result<u64, String> {
     ogimage::clear_cache(&crate::project_root())
 }

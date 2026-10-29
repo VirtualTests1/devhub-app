@@ -80,12 +80,12 @@ pub fn read_report(path: &Path) -> Option<CrashReport> {
 /// Read the report left by the previous process. Kept after reading until the
 /// user dismisses it: a crash that is cleared by the act of looking cannot be
 /// pasted into an issue later.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn last_crash() -> Option<CrashReport> {
     read_report(&crash_path())
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn clear_crash() -> Result<(), String> {
     match std::fs::remove_file(crash_path()) {
         Ok(()) => Ok(()),

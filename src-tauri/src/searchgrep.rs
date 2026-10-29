@@ -76,7 +76,7 @@ pub(crate) const MAX_FILE_BYTES: u64 = 1_048_576;
 pub(crate) const BINARY_SNIFF_BYTES: usize = 8192;
 
 /// Rust 后端命令：在一个目录（通常是某个克隆的仓库根）里搜索 pattern。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn repo_grep(
     root: String,
     pattern: String,

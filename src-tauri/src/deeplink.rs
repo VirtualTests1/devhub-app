@@ -174,7 +174,7 @@ pub fn register_windows_protocol(_exe_path: &str) -> Result<(), String> {
 /// 把当前可执行文件路径写进 HKCU\Software\Classes\devhub\shell\open\command。
 /// 不需要管理员权限。注册成功后，浏览器/系统就能把 `devhub://owner/repo`
 /// 转发给本程序，走上面的 deep link 处理链。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn register_deeplink() -> Result<String, String> {
     let exe = std::env::current_exe()
         .map_err(|e| format!("无法获取当前可执行文件路径：{e}"))?;

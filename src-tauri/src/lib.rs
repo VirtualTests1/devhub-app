@@ -576,7 +576,7 @@ fn reap(g: &mut std::collections::HashMap<u32, Tracked>) {
 }
 
 /// Polls every tracked process for one project.
-#[tauri::command]
+#[tauri::command(async)]
 fn process_states(
     settings: tauri::State<'_, Settings>,
     slug: String,
@@ -647,7 +647,7 @@ fn snapshot_processes(procs: &ProcTable) -> Vec<ProcessState> {
 ///
 /// The status strip needs a count the launch dialog used to be the only holder
 /// of, and polling per slug would mean one invoke per repository on the wall.
-#[tauri::command]
+#[tauri::command(async)]
 fn live_processes(settings: tauri::State<'_, Settings>) -> Result<Vec<ProcessState>, String> {
     Ok(snapshot_processes(&settings.procs))
 }

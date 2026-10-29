@@ -2131,6 +2131,9 @@ const ZH = {
   "about.openRelease": "打开发布页",
   "about.failed": "检查更新失败：{msg}",
   "about.prerelease": "这是预发布版本，可能不稳定。",
+  "queue.retryFailed": "重试失败（{n}）",
+  "queue.retryQueued": "已重新排队 {n} 个失败任务",
+  "queue.retryLog": "重新排队",
   "settings.search.kw.about": "关于,更新,版本,release",
   "app.credentialsScrubbed": "已从 {n} 个仓库的 git 配置中移除旧的 GitHub 令牌",
 } as const;
@@ -4055,6 +4058,9 @@ const EN_VALUES = [
   "Open release page",
   "Update check failed: {msg}",
   "This is a pre-release and may be unstable.",
+  "Retry failed ({n})",
+  "Re-queued {n} failed tasks",
+  "Re-queued",
   "about,update,version,release",
   "Removed an old GitHub token from {n} repositories' git config",
 ] as const;

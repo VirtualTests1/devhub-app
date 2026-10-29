@@ -117,6 +117,8 @@ type State = {
   /** Stop a running clone. The backend kills the tree and removes the partial dir. */
   cancel: (id: string) => void;
   dismiss: (id: string) => void;
+  /** Re-queue every failed row; returns how many were reset. */
+  retryFailed: () => number;
   clearFinished: () => void;
   setMaxParallel: (n: number) => void;
 };
@@ -527,6 +529,35 @@ export const useDownloads = create<State>((set, get) => ({
         }));
         toast.error(t("queue.cancelFailed", { ref: task.ref, msg: messageOf(e) }));
       });
+  },
+
+  retryFailed: () => {
+    const failed = get().tasks.filter((t) => t.status === "failed");
+    if (failed.length === 0) return 0;
+    const stamp = t("queue.retryLog");
+    set((s) => ({
+      tasks: s.tasks.map((task) =>
+        task.status === "failed"
+          ? {
+              ...task,
+              status: "queued" as const,
+              failure: null,
+              outcome: null,
+              endedAt: undefined,
+              startedAt: Date.now(),
+              cancelRequested: false,
+              interrupted: false,
+              progress: null,
+              stages: [],
+              lastLine: "",
+              log: [...task.log, `${clockOf(new Date())} +0.0s [queue] ${stamp}`].slice(-(LOG_HEAD + LOG_TAIL + 1)),
+            }
+          : task,
+      ),
+    }));
+    persistRecovery(get().tasks);
+    pump();
+    return failed.length;
   },
 
   clearFinished: () => {

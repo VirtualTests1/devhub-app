@@ -22,6 +22,7 @@ import { rowOwnsKey } from "../lib/useDismiss";
 import { copyLogWithToast } from "../lib/clipboard";
 import { reportError } from "../lib/report-error";
 import { DownloadProgress } from "./DownloadProgress";
+import { toast } from "./Toast";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { countByStatus, useDownloads, type DownloadTask } from "../store/downloads";
 import { QUEUE_FINISHED_CAP } from "../lib/queue-retention";
@@ -65,6 +66,7 @@ export function DownloadQueue() {
   const ids = useDownloads(useShallow((s) => s.tasks.map((t) => t.id)));
   const tally = useDownloads(useShallow((s) => countByStatus(s.tasks)));
   const clearFinished = useDownloads((s) => s.clearFinished);
+  const retryFailed = useDownloads((s) => s.retryFailed);
   const maxParallel = useDownloads((s) => s.maxParallel);
   const setOpenSlug = useUI((s) => s.setOpenSlug);
   const { t } = useI18n();
@@ -121,11 +123,26 @@ export function DownloadQueue() {
             {t("queue.keepHint", { n: QUEUE_FINISHED_CAP })}
           </span>
         )}
+        {tally.failed > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              const n = retryFailed();
+              if (n > 0) toast.success(t("queue.retryQueued", { n }));
+            }}
+            className="ml-auto text-caption text-muted-foreground underline decoration-dotted hover:text-foreground"
+          >
+            {t("queue.retryFailed", { n: tally.failed })}
+          </button>
+        )}
         {tally.finished > 0 && (
           <button
             type="button"
             onClick={clearFinished}
-            className="ml-auto text-caption text-muted-foreground underline decoration-dotted hover:text-foreground"
+            className={cn(
+              "text-caption text-muted-foreground underline decoration-dotted hover:text-foreground",
+              tally.failed === 0 && "ml-auto",
+            )}
           >
             {t("queue.clearFinished")}
           </button>

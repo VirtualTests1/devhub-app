@@ -5,6 +5,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   ArrowRight,
+  Bookmark,
   FolderOpen,
   History,
   LayoutGrid,
@@ -43,6 +44,7 @@ import {
 import { ELEMENTS, SHELL_GROUP, reg, useCustomize } from "../store/customize";
 import { resolveTheme, useAppearance } from "../store/appearance";
 import { useWall } from "../store/wall";
+import { useWallViews } from "../store/wall-views";
 import { useCorpus } from "../store/corpus";
 import { SETTINGS_SECTIONS } from "../settingsCatalog";
 import { useUI, type ViewId } from "../store/ui";
@@ -158,6 +160,7 @@ export function CommandPalette({
   // rebuild the index for free. Narrow subscriptions, same staleness argument
   // as `theme` above.
   const wallStates = useWall((s) => s.repos);
+  const savedViews = useWallViews((s) => s.views);
   const extras = useCorpus((s) => s.extras);
   const localIndex = useMemo(() => {
     const entries = repos.map((r) => {
@@ -300,6 +303,23 @@ export function CommandPalette({
         keywords: t("palette.kwSettings"),
         run: go("settings"),
       },
+      ...savedViews.map(
+        (view): Command => ({
+          id: `wall-view-${view.id}`,
+          group: "actions",
+          label: t("wall.views.apply", { name: view.name }),
+          note: view.query || view.language || view.category || view.tags.join(" · ") || undefined,
+          icon: <Bookmark className="h-4 w-4" />,
+          keywords: `view ${view.name} ${view.query} ${view.tags.join(" ")}`,
+          run: () => {
+            // The request survives until ProjectsView consumes it; `go` below is
+            // what mounts the view when the palette was opened elsewhere.
+            useWallViews.getState().requestApply(view.id);
+            ui.getState().go("projects");
+            onClose();
+          },
+        }),
+      ),
       {
         id: "act-theme",
         group: "actions",
@@ -495,7 +515,7 @@ export function CommandPalette({
     return [...repoCmds, ...list, ...pageCmds, ...blockCmds, ...recordCmds];
     // `t` joins the deps so a language switch rebuilds the 去… / 设置 page
     // labels while the palette is open (exhaustive-deps is a gate error here).
-  }, [repos, records, onRefresh, onClose, ui, theme, t]);
+  }, [repos, records, onRefresh, onClose, ui, theme, t, savedViews]);
 
   const ranked = useMemo<Command[]>(() => {
     const q = parsedQuery.text.trim();

@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDestructive } from "../lib/confirm";
 import {
+  BookmarkPlus,
   BookOpen,
   Broom,
   Download,
@@ -10,6 +11,7 @@ import {
   FolderOpen,
   FolderTree,
   LoaderCircle,
+  Pencil,
   Pin,
   Plus,
   RefreshCw,
@@ -74,6 +76,14 @@ import { useMeta } from "../store/meta";
 import { useHeat } from "../store/heat";
 import { heatNames } from "../lib/heat";
 import { useSelection } from "../store/selection";
+import { useWallViews } from "../store/wall-views";
+import {
+  WALL_VIEW_LIMIT,
+  criteriaOf,
+  hasViewCriteria,
+  sameCriteria,
+  type WallViewCriteria,
+} from "../lib/wall-views";
 import { reg, useCustomize } from "../store/customize";
 import {
   WALL_DENSITIES,
@@ -227,6 +237,9 @@ const RepoFilesDialog = lazy(() =>
 const RepoTagsDialog = lazy(() =>
   import("../components/RepoTagsDialog").then((m) => ({ default: m.RepoTagsDialog })),
 );
+const WallViewDialog = lazy(() =>
+  import("../dialogs/WallViewDialog").then((m) => ({ default: m.WallViewDialog })),
+);
 
 /**
  * Fetch the card dialogs after first paint, not during it. A fixed 1.5 s timer rather
@@ -242,6 +255,7 @@ function preloadCardDialogs(): () => void {
     void import("../dialogs/RepoGrepDialog");
     void import("../dialogs/RepoFilesDialog");
     void import("../components/RepoTagsDialog");
+    void import("../dialogs/WallViewDialog");
   }, 1500);
   return () => window.clearTimeout(id);
 }
@@ -447,6 +461,105 @@ export function ProjectsView({
     }
     return kept;
   }, [tagChips, tagFilter]);
+
+  const wallViews = useWallViews((s) => s.views);
+  const wallViewActiveId = useWallViews((s) => s.activeId);
+  const wallViewApply = useWallViews((s) => s.applyRequest);
+  const [viewDialog, setViewDialog] = useState<
+    { mode: "save" } | { mode: "rename"; id: string; name: string } | null
+  >(null);
+
+  /** What the toolbar currently asks for; a saved view is one of these. */
+  const currentCriteria = useMemo<WallViewCriteria>(
+    () => ({
+      query: query.trim(),
+      language: langFilter,
+      category: catFilter,
+      tags: [...activeTags],
+      sort,
+      filter,
+    }),
+    [query, langFilter, catFilter, activeTags, sort, filter],
+  );
+
+  /**
+   * The saved view the wall is still showing.
+   *
+   * Derived rather than trusted: a stored `activeId` plus a later manual edit is
+   * not "that view anymore", and a select that kept the old name would claim the
+   * wall is filtered by something it is not. The store keeps the id so the
+   * palette can re-apply it; the toolbar only shows it while the criteria match.
+   */
+  const activeView = useMemo(() => {
+    const view = wallViews.find((v) => v.id === wallViewActiveId);
+    return view && sameCriteria(currentCriteria, criteriaOf(view)) ? view : null;
+  }, [wallViews, wallViewActiveId, currentCriteria]);
+
+  /**
+   * Palette → wall hand-off. The palette may run while this view is unmounted,
+   * so it writes a request instead of trying to call state setters that do not
+   * exist yet; the effect consumes it once and clears the request.
+   */
+  useEffect(() => {
+    if (!wallViewApply) return;
+    const store = useWallViews.getState();
+    const view = store.views.find((v) => v.id === wallViewApply.id);
+    if (!view) {
+      store.consume(wallViewApply.seq);
+      return;
+    }
+    setQuery(view.query);
+    setLangFilter(view.language);
+    setCatFilter(view.category);
+    setTagFilter(view.tags);
+    setPref("sort", view.sort);
+    setPref("filter", view.filter);
+    useWallViews.setState({ activeId: view.id });
+    store.consume(wallViewApply.seq);
+  }, [wallViewApply, setPref]);
+
+  const saveCurrentView = (name: string) => {
+    const result = useWallViews.getState().save(name, currentCriteria);
+    if (!result.ok) {
+      toast.error(
+        result.reason === "duplicate"
+          ? t("wall.views.duplicate")
+          : result.reason === "full"
+            ? t("wall.views.full", { n: WALL_VIEW_LIMIT })
+            : t("wall.views.emptyName"),
+      );
+      return;
+    }
+    setViewDialog(null);
+    toast.success(t("wall.views.saved", { name: result.view.name }));
+  };
+
+  const renameView = (id: string, name: string) => {
+    const result = useWallViews.getState().rename(id, name);
+    if (!result.ok) {
+      toast.error(
+        result.reason === "duplicate"
+          ? t("wall.views.duplicate")
+          : result.reason === "full"
+            ? t("wall.views.full", { n: WALL_VIEW_LIMIT })
+            : t("wall.views.emptyName"),
+      );
+      return;
+    }
+    setViewDialog(null);
+    toast.success(t("wall.views.renamed", { name }));
+  };
+
+  const deleteActiveView = async () => {
+    if (!activeView) return;
+    const ok = await confirmDestructive(t("wall.views.deleteConfirm", { name: activeView.name }), {
+      title: t("wall.views.deleteTitle"),
+      okLabel: t("wall.views.delete"),
+    });
+    if (!ok) return;
+    useWallViews.getState().remove(activeView.id);
+    toast.success(t("wall.views.removed", { name: activeView.name }));
+  };
 
   const languageOptions = useMemo(() => {
     const counts = new Map<string, number>();
@@ -1436,6 +1549,52 @@ export function ProjectsView({
               ariaLabel={t("wall.facet.category")}
               prefix={t("wall.facet.category")}
             />
+            <MenuSelect
+              value={activeView?.id ?? "__current"}
+              options={[
+                { id: "__current", label: t("wall.views.current"), note: undefined },
+                ...wallViews.map((v) => ({ id: v.id, label: v.name, note: undefined })),
+              ]}
+              onChange={(id) => {
+                if (id !== "__current") useWallViews.getState().requestApply(id);
+              }}
+              ariaLabel={t("wall.views.aria")}
+              prefix={t("wall.views.label")}
+            />
+            <button
+              type="button"
+              onClick={() => setViewDialog({ mode: "save" })}
+              disabled={!hasViewCriteria(currentCriteria)}
+              aria-label={t("wall.views.saveAria")}
+              title={
+                hasViewCriteria(currentCriteria) ? t("wall.views.saveHint") : t("wall.views.nothingToSave")
+              }
+              className="skin-ctl border border-border p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-40"
+            >
+              <BookmarkPlus className="h-3.5 w-3.5" />
+            </button>
+            {activeView && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setViewDialog({ mode: "rename", id: activeView.id, name: activeView.name })}
+                  aria-label={t("wall.views.renameAria")}
+                  title={t("wall.views.rename")}
+                  className="skin-ctl border border-border p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void deleteActiveView()}
+                  aria-label={t("wall.views.deleteAria")}
+                  title={t("wall.views.delete")}
+                  className="skin-ctl border border-border p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-danger"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </>
+            )}
             <Segmented<FilterId>
               value={filter}
               ariaLabel={t("wall.filterSeg.aria")}
@@ -1963,6 +2122,20 @@ export function ProjectsView({
           state={states[tagsCard.slug]}
           suggestions={tagChips.map((c) => c.tag)}
           onClose={() => setTagsSlug(null)}
+        />
+      )}
+
+      {viewDialog && (
+        <WallViewDialog
+          mode={viewDialog.mode}
+          initialName={viewDialog.mode === "rename" ? viewDialog.name : ""}
+          onClose={() => setViewDialog(null)}
+          onSubmit={(name) => {
+            const dialog = viewDialog;
+            if (!dialog) return;
+            if (dialog.mode === "save") saveCurrentView(name);
+            else renameView(dialog.id, name);
+          }}
         />
       )}
       </Suspense>

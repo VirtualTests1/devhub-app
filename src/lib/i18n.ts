@@ -2217,6 +2217,17 @@ const ZH = {
 "diag.hint.git": "确认 Git 可用；若目录已有 .git 状态异常，先修复或换目录。",
 "diag.hint.unknown": "复制诊断查看日志末尾，或到设置 → 故障与诊断查看记录。",
 "dl.failureHint": "可能原因：{kind} — {hint}",
+"wall.recovered.title": "已从本地快照恢复项目墙",
+"wall.recovered.body": "主数据无法解析，已使用 {time} 的快照。项目文件不受影响。",
+"wall.recovered.dismiss": "知道了",
+"pw.snapshotTitle": "本地快照",
+"pw.snapshotHint": "最近快照：{time}。只包含项目墙的别名、标签、备注、封面与布局，不含项目文件。",
+"pw.snapshotNone": "还没有本地快照",
+"pw.snapshotAction": "还原快照",
+"pw.snapshotTitleConfirm": "还原项目墙快照",
+"pw.snapshotConfirm": "还原会覆盖当前的项目墙别名、标签、备注、封面与布局。项目文件不受影响。确定吗？",
+"pw.snapshotDone": "已还原 {time} 的快照",
+"pw.snapshotFail": "没有可还原的快照",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4225,6 +4236,17 @@ const EN_VALUES = [
   "Confirm Git is available; if the directory already has a broken .git, repair it or choose another directory.",
   "Copy the diagnostics for the log tail, or open Settings → Failures & diagnostics.",
   "Likely cause: {kind} — {hint}",
+  "The wall was restored from a local snapshot",
+  "The main payload was unreadable, so the {time} snapshot was used. Project files are untouched.",
+  "Dismiss",
+  "Local snapshot",
+  "Latest snapshot: {time}. It contains the wall's aliases, tags, notes, covers and layout, not project files.",
+  "No local snapshot yet",
+  "Restore snapshot",
+  "Restore the wall snapshot",
+  "Restoring overwrites the wall's current aliases, tags, notes, covers and layout. Project files are untouched. Continue?",
+  "Restored the {time} snapshot",
+  "No snapshot to restore",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

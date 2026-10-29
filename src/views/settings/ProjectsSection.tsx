@@ -1,8 +1,10 @@
 import { useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Download, Eye, LayoutGrid, Search, SlidersHorizontal, Trash2, Upload } from "lucide-react";
+import { Download, Eye, History, LayoutGrid, Search, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { toast } from "../../components/Toast";
+import { confirmDestructive } from "../../lib/confirm";
+import { latestSnapshot } from "../../lib/wall-snapshot";
 import {
   ActionRow,
   ChoiceRow,
@@ -44,7 +46,11 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
   const unhideAll = useWall((s) => s.unhideAll);
   const resetAll = useWall((s) => s.resetAll);
   const applyXfer = useWall((s) => s.applyXfer);
+  const restoreSnapshot = useWall((s) => s.restoreSnapshot);
   const [xferBusy, setXferBusy] = useState(false);
+  // Read on mount rather than subscribed: a snapshot is taken by the wall store,
+  // and this panel does not need to re-render while the user is not on it.
+  const [snapshotAt, setSnapshotAt] = useState<number | null>(() => latestSnapshot()?.savedAt ?? null);
 
   const exportWall = useCallback(async () => {
     const picked = await saveDialog({
@@ -190,6 +196,37 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
         secondary
         disabled={xferBusy}
         onAction={() => void importWall()}
+      />
+      <ActionRow
+        icon={<History className="h-4 w-4" />}
+        title={t("pw.snapshotTitle")}
+        hint={
+          snapshotAt === null
+            ? t("pw.snapshotNone")
+            : t("pw.snapshotHint", { time: new Date(snapshotAt).toLocaleString() })
+        }
+        actionLabel={t("pw.snapshotAction")}
+        secondary
+        disabled={snapshotAt === null}
+        onAction={() => {
+          void (async () => {
+            const ok = await confirmDestructive(t("pw.snapshotConfirm"), {
+              title: t("pw.snapshotTitleConfirm"),
+              okLabel: t("pw.snapshotAction"),
+            });
+            if (!ok) return;
+            const result = restoreSnapshot();
+            if (!result.ok) {
+              toast.error(t("pw.snapshotFail"));
+              setSnapshotAt(null);
+              return;
+            }
+            setSnapshotAt(result.savedAt);
+            toast.success(
+              t("pw.snapshotDone", { time: new Date(result.savedAt).toLocaleString() }),
+            );
+          })();
+        }}
       />
 
       {hidden.length > 0 && (

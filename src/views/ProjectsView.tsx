@@ -308,6 +308,8 @@ export function ProjectsView({
   const toggleHidden = useWall((s) => s.toggleHidden);
   const applyOrder = useWall((s) => s.applyOrder);
   const resetOrder = useWall((s) => s.resetOrder);
+  const wallRecoveredAt = useWall((s) => s.recoveredAt);
+  const dismissWallRecovery = useWall((s) => s.dismissRecovery);
   const metaBySlug = useMeta((s) => s.bySlug);
   // r18 N4. Keyed by `owner/repo` (GitHub's own identity), not by the wall's
   // `host/owner/repo` slug — see `src/lib/wall-derive.ts:WallSortContext`.
@@ -1470,6 +1472,30 @@ export function ProjectsView({
         hint={t("wall.view.hint")}
         headerId="projects-header"
       />
+
+      {wallRecoveredAt !== null && (
+        <div
+          role="status"
+          className="mb-3 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning/5 px-3 py-2 text-caption text-muted-foreground"
+        >
+          <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-warning" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium text-warning">{t("wall.recovered.title")}</p>
+            <p className="mt-0.5 leading-relaxed">
+              {t("wall.recovered.body", {
+                time: new Date(wallRecoveredAt).toLocaleString(),
+              })}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={dismissWallRecovery}
+            className="shrink-0 rounded px-1.5 py-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            {t("wall.recovered.dismiss")}
+          </button>
+        </div>
+      )}
 
       <div
         {...reg("projects-toolbar")}

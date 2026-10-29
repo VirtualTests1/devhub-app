@@ -1,5 +1,11 @@
 import { create } from "zustand";
 import { scheduleStorageWrite } from "../lib/storage";
+import {
+  WALL_SNAPSHOT_INTERVAL_MS,
+  captureSnapshot,
+  latestSnapshot,
+  readSnapshots,
+} from "../lib/wall-snapshot";
 
 /**
  * The 项目墙's own state: what the wall looks like, and what each card means to
@@ -522,6 +528,14 @@ type Wall = WallPrefs & {
     prefs: Partial<WallPrefs>,
     repos: Record<string, RepoState>,
   ) => void;
+  /**
+   * The main key failed to parse at boot and the wall was read from a local
+   * snapshot instead (r30-N4). `null` on every normal start.
+   */
+  recoveredAt: number | null;
+  dismissRecovery: () => void;
+  /** Replace the current wall with the newest snapshot. Confirmation is the caller's. */
+  restoreSnapshot: () => { ok: true; savedAt: number } | { ok: false };
 };
 
 /**
@@ -578,15 +592,22 @@ function sanitiseRepos(raw: unknown): Record<string, RepoState> {
   return out;
 }
 
-function readStored(): { prefs: WallPrefs; repos: Record<string, RepoState> } {
+type StoredWall = { prefs: WallPrefs; repos: Record<string, RepoState> };
+
+/**
+ * Parse one wall payload. `null` means "this is not a wall object", which is a
+ * different answer from "a valid wall with no prefs/repos": only the former is
+ * corruption, and only corruption may fall back to a snapshot.
+ */
+export function parseStoredWall(raw: string): StoredWall | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return { prefs: DEFAULT_PREFS, repos: {} };
-    const parsed = JSON.parse(raw) as Partial<{
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const value = parsed as Partial<{
       prefs: WallPrefs;
       repos: Record<string, RepoState>;
     }>;
-    const prefs = { ...DEFAULT_PREFS, ...(parsed.prefs ?? {}) };
+    const prefs = { ...DEFAULT_PREFS, ...(value.prefs ?? {}) };
     // A stored id that no longer exists would silently do nothing in the CSS, so
     // the values are re-checked against the tables rather than trusted from disk.
     if (!SORTS.some((s) => s.id === prefs.sort)) prefs.sort = "name";
@@ -594,35 +615,94 @@ function readStored(): { prefs: WallPrefs; repos: Record<string, RepoState> } {
     if (!WALL_DENSITIES.some((d) => d.id === prefs.density)) prefs.density = "standard";
     // Booleans have no table to check against; `??` would keep `"no"` as truthy.
     if (typeof prefs.grouped !== "boolean") prefs.grouped = DEFAULT_PREFS.grouped;
-    return { prefs, repos: sanitiseRepos(parsed.repos) };
+    return { prefs, repos: sanitiseRepos(value.repos) };
   } catch {
-    return { prefs: DEFAULT_PREFS, repos: {} };
+    return null;
   }
 }
+
+/**
+ * Read one wall from a storage backend. Exported so the corrupt-main →
+ * snapshot fallback can be driven with a Map instead of the live profile.
+ */
+export function readWallFrom(storage: Pick<Storage, "getItem" | "setItem">): StoredWall & {
+  recoveredAt: number | null;
+} {
+  const raw = storage.getItem(STORAGE_KEY);
+  if (raw !== null) {
+    const parsed = parseStoredWall(raw);
+    if (parsed) return { ...parsed, recoveredAt: null };
+    // The key exists but is not a wall. Falling back to an empty wall here is
+    // what made corruption look like a first run; a snapshot is the last known
+    // good answer and is only trusted when it parses. Older snapshots are tried
+    // too: the newest one can itself have been written from a broken payload.
+    for (const snapshot of readSnapshots(storage)) {
+      const recovered = parseStoredWall(snapshot.wall);
+      if (recovered) return { ...recovered, recoveredAt: snapshot.savedAt };
+    }
+    return { prefs: DEFAULT_PREFS, repos: {}, recoveredAt: null };
+  }
+  // No main key is normally a first run. A snapshot is not resurrected
+  // automatically: the user may have cleared the wall on purpose, and a
+  // surprise restore is worse than an empty wall that still has a manual
+  // 还原快照 row under Settings.
+  return { prefs: DEFAULT_PREFS, repos: {}, recoveredAt: null };
+}
+
+function readStored(): StoredWall & { recoveredAt: number | null } {
+  try {
+    return readWallFrom(localStorage);
+  } catch {
+    return { prefs: DEFAULT_PREFS, repos: {}, recoveredAt: null };
+  }
+}
+
+/** When the wall last tried to snapshot; the throttle is deliberately coarse. */
+let lastSnapshotAt = 0;
 
 function persist(state: Wall) {
   // Coalesced in lib/storage: this used to stringify and write synchronously on
   // every setRepo, and a cover pick or a drag burst fires dozens per second. The
   // JSON shape is unchanged — only the timing moved.
-  scheduleStorageWrite(
-    STORAGE_KEY,
-    JSON.stringify({
-      prefs: {
-        sort: state.sort,
-        filter: state.filter,
-        grouped: state.grouped,
-        density: state.density,
-      },
-      repos: state.repos,
-    }),
-  );
+  const json = JSON.stringify({
+    prefs: {
+      sort: state.sort,
+      filter: state.filter,
+      grouped: state.grouped,
+      density: state.density,
+    },
+    repos: state.repos,
+  });
+  scheduleStorageWrite(STORAGE_KEY, json);
+  // First change of a session snapshots immediately; later ones at most once
+  // per interval. A failure leaves `lastSnapshotAt` alone so the next change
+  // tries again instead of waiting out a window that produced no snapshot.
+  const now = Date.now();
+  if (now - lastSnapshotAt >= WALL_SNAPSHOT_INTERVAL_MS) {
+    if (captureSnapshot(json, now)) lastSnapshotAt = now;
+  }
 }
 
 const initial = readStored();
 
-export const useWall = create<Wall>((set) => ({
+export const useWall = create<Wall>((set, get) => ({
   ...initial.prefs,
   repos: initial.repos,
+  recoveredAt: initial.recoveredAt,
+
+  dismissRecovery: () => set({ recoveredAt: null }),
+
+  restoreSnapshot: () => {
+    const snapshot = latestSnapshot();
+    if (!snapshot) return { ok: false };
+    const parsed = parseStoredWall(snapshot.wall);
+    if (!parsed) return { ok: false };
+    set({ ...parsed.prefs, repos: parsed.repos, recoveredAt: null });
+    // Write through immediately: a restore the user asked for must not wait for
+    // the next unrelated edit to become the main payload.
+    persist(get());
+    return { ok: true, savedAt: snapshot.savedAt };
+  },
 
   setPref: (key, value) =>
     set((s) => {
@@ -724,7 +804,7 @@ export const useWall = create<Wall>((set) => ({
   resetAll: () =>
     set(() => {
       persist({ ...DEFAULT_PREFS, repos: {} } as Wall);
-      return { ...DEFAULT_PREFS, repos: {} };
+      return { ...DEFAULT_PREFS, repos: {}, recoveredAt: null };
     }),
 
   applyXfer: (prefs, repos) =>
@@ -735,9 +815,14 @@ export const useWall = create<Wall>((set) => ({
         repos,
       };
       persist(next);
-      return { sort: next.sort, filter: next.filter, grouped: next.grouped, density: next.density, repos };
+      return { sort: next.sort, filter: next.filter, grouped: next.grouped, density: next.density, repos, recoveredAt: null };
     }),
 }));
+
+// Repair the main key after a snapshot recovery, so the next launch does not
+// repeat the fallback (and the corrupt value is replaced) even if the user makes
+// no edit. The snapshot written here is the recovered payload, not the corrupt one.
+if (initial.recoveredAt !== null) persist(useWall.getState());
 
 /**
  * The canonical slug, byte-identical to the `repo:<slug>` usage key and the backend's.

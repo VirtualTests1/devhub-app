@@ -3272,6 +3272,63 @@ pub fn is_occupied(path: &std::path::Path) -> bool {
     !(path.is_dir() && dir_is_empty(path))
 }
 
+/// Where a repository would land under `root`, before any git work.
+///
+/// Extracted from [`Downloader::target_path`] so the download preflight can
+/// answer the same question without constructing a `Downloader` (which resolves
+/// git and costs seconds on a cold start). The marker rule is unchanged: the
+/// primary path is reused only when it is ours (marker slug matches), and an
+/// occupied directory belonging to someone else gets the host-suffixed name.
+pub fn target_path_for(root: &Path, r: &RepoRef) -> PathBuf {
+    let primary = root.join(r.dir_name());
+    if !primary.exists() {
+        return primary;
+    }
+    let mine = read_marker(&primary)
+        .map(|m| normalize_slug(&m.slug) == normalize_slug(&r.slug()))
+        .unwrap_or(false);
+    if mine {
+        return primary;
+    }
+    if dir_is_empty(&primary) {
+        return primary;
+    }
+    root.join(format!(
+        "{}_{}",
+        r.dir_name(),
+        sanitize_component(&r.host)
+    ))
+}
+
+/// Facts the queue needs before it asks git to clone (r31-O2).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadPreflight {
+    pub target: String,
+    /// Something other than an empty directory is already there.
+    pub occupied: bool,
+    /// The target exists and is an empty directory (a placeholder is reusable).
+    pub empty: bool,
+    pub free_bytes: Option<u64>,
+    pub total_bytes: Option<u64>,
+    /// The landing path alone makes the download impossible (length).
+    pub path_error: Option<String>,
+}
+
+/// Pure fact collection for one landing path; the caller owns path_guard and
+/// the network-free ref parsing.
+pub fn preflight_for(target: &Path) -> DownloadPreflight {
+    let space = crate::disk::space_for(target);
+    DownloadPreflight {
+        target: target.to_string_lossy().to_string(),
+        occupied: is_occupied(target),
+        empty: target.is_dir() && dir_is_empty(target),
+        free_bytes: space.map(|s| s.available),
+        total_bytes: space.map(|s| s.total),
+        path_error: target_path_length_error(target),
+    }
+}
+
 pub struct Downloader {
     pub config: DownloaderConfig,
     pub git: GitLocation,
@@ -3325,25 +3382,7 @@ impl Downloader {
     /// directory first, so one click on the preview silently moved every later
     /// download to `<repo>_<owner>_<host>`.
     pub fn target_path(&self, r: &RepoRef) -> PathBuf {
-        let root = &self.config.project_root;
-        let primary = root.join(r.dir_name());
-        if !primary.exists() {
-            return primary;
-        }
-        let mine = read_marker(&primary)
-            .map(|m| normalize_slug(&m.slug) == normalize_slug(&r.slug()))
-            .unwrap_or(false);
-        if mine {
-            return primary;
-        }
-        if dir_is_empty(&primary) {
-            return primary;
-        }
-        root.join(format!(
-            "{}_{}",
-            r.dir_name(),
-            sanitize_component(&r.host)
-        ))
+        target_path_for(&self.config.project_root, r)
     }
 
     pub fn download(
@@ -6120,6 +6159,49 @@ mod tests {
             Some(r"C:\Python312\python.exe")
         );
         assert_eq!(after.port_base, 20000, "the port block survives");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn preflight_distinguishes_empty_occupied_and_missing_targets() {
+        let root = std::env::temp_dir().join(format!("devhub-preflight-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let target = root.join("repo_owner");
+
+        let missing = preflight_for(&target);
+        assert!(!missing.occupied);
+        assert!(!missing.empty);
+        assert!(missing.path_error.is_none());
+        assert!(missing.free_bytes.is_some(), "the temp volume must answer");
+        assert_eq!(missing.target, target.to_string_lossy());
+
+        std::fs::create_dir_all(&target).unwrap();
+        let empty = preflight_for(&target);
+        assert!(empty.empty);
+        assert!(!empty.occupied, "an empty placeholder is reusable");
+
+        std::fs::write(target.join("README.md"), b"occupied").unwrap();
+        let occupied = preflight_for(&target);
+        assert!(!occupied.empty);
+        assert!(occupied.occupied);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn target_path_for_reuses_empty_dirs_and_renames_foreign_ones() {
+        let root = std::env::temp_dir().join(format!("devhub-target-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let r = parse_ref("alice/tool").unwrap();
+        let primary = root.join(r.dir_name());
+        std::fs::create_dir_all(&primary).unwrap();
+        assert_eq!(target_path_for(&root, &r), primary, "empty placeholder is ours");
+
+        std::fs::write(primary.join("x"), b"x").unwrap();
+        let foreign = target_path_for(&root, &r);
+        assert_ne!(foreign, primary);
+        assert!(foreign.to_string_lossy().contains("github.com"));
         let _ = std::fs::remove_dir_all(&root);
     }
 

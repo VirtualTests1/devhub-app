@@ -1,11 +1,12 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { DownloadOutcome, ProgressEvent, SettingsView as SettingsPayload } from "../types";
+import type { DownloadOutcome, DownloadPreflight, ProgressEvent, SettingsView as SettingsPayload } from "../types";
 import { toast } from "../store/toast";
 import { boundQueueTasks } from "../lib/queue-retention";
 import { messageOf, swallow } from "../lib/report-error";
 import { t } from "../lib/i18n";
+import { preflightFailureText, preflightPassedLine } from "../lib/download-preflight";
 import {
   captureRecovered,
   takeRecovered,
@@ -68,6 +69,8 @@ export type DownloadTask = {
   progressAt?: number;
   /** A row recovered after restart: failed, with no logs from the lost session. */
   interrupted?: boolean;
+  /** r31-O2: a running row whose preflight is still in flight (no clone yet). */
+  checking?: boolean;
   outcome: DownloadOutcome | null;
   failure: string | null;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
@@ -482,6 +485,7 @@ export const useDownloads = create<State>((set, get) => ({
               failure: cancelled ? null : failure,
               endedAt: Date.now(),
               cancelRequested: false,
+              checking: false,
             }
           : t,
       );
@@ -530,6 +534,17 @@ export const useDownloads = create<State>((set, get) => ({
   cancel: (id) => {
     const task = get().tasks.find((t) => t.id === id);
     if (!task || task.status !== "running" || task.cancelRequested) return;
+    // Preflight has not spawned git yet. Marking the row cancelled here avoids
+    // asking the backend to cancel an id it has never heard of, and the pending
+    // preflight checks the row again before it would start the clone.
+    if (task.checking) {
+      set((s) => ({
+        tasks: s.tasks.map((t) => (t.id === id ? { ...t, cancelRequested: true } : t)),
+      }));
+      get().finish(id, null, t("queue.cancelled"));
+      toast.info(t("queue.cancelledToast", { ref: task.ref }));
+      return;
+    }
     set((s) => ({
       tasks: s.tasks.map((t) => (t.id === id ? { ...t, cancelRequested: true } : t)),
     }));
@@ -566,6 +581,7 @@ export const useDownloads = create<State>((set, get) => ({
               startedAt: Date.now(),
               cancelRequested: false,
               interrupted: false,
+              checking: false,
               // A retry must not silently repeat a destructive overwrite; the
               // user has to re-confirm that option after seeing the failure.
               overwrite: false,
@@ -607,6 +623,59 @@ export const useDownloads = create<State>((set, get) => ({
  * to the one that arrived last. `inServiceOrder` is the same helper the progress
  * router uses, so the two cannot drift apart again.
  */
+/**
+ * Starts one task: preflight first, then the clone.
+ *
+ * The preflight is deliberately in front of `download_repo` rather than a
+ * backend-side check inside the clone path, because a refusal here costs one
+ * small command instead of a git process and a half-created landing directory.
+ * It also makes the refusal visible in the queue with the backend's facts.
+ */
+async function startTask(pick: DownloadTask): Promise<void> {
+  try {
+    const facts = await invoke<DownloadPreflight>("download_preflight", {
+      input: pick.ref,
+      targetDir: pick.targetDir ?? null,
+    });
+    const current = useDownloads.getState().tasks.find((t) => t.id === pick.id);
+    // Dismissed, cancelled or superseded while the preflight was out.
+    if (!current || current.status !== "running") return;
+    if (current.cancelRequested) {
+      useDownloads.getState().finish(pick.id, null, t("queue.cancelled"));
+      return;
+    }
+    const problem = preflightFailureText(facts, pick.overwrite ?? false);
+    if (problem) {
+      useDownloads.getState().finish(pick.id, null, problem);
+      toast.error(t("queue.preflightFailed", { ref: pick.ref }));
+      return;
+    }
+    useDownloads.setState((st) => ({
+      tasks: st.tasks.map((x) => (x.id === pick.id ? { ...x, checking: false } : x)),
+    }));
+    useDownloads.getState().applyProgress({
+      task: pick.id,
+      stage: "preflight",
+      message: preflightPassedLine(facts),
+    });
+    const res = await invoke<DownloadOutcome>("download_repo", {
+      input: pick.ref,
+      source: pick.source,
+      task: pick.id,
+      targetDir: pick.targetDir ?? null,
+      overwrite: pick.overwrite ?? false,
+      branch: pick.branch ?? null,
+    });
+    useDownloads.getState().finish(pick.id, res, null);
+    toast.success(t("queue.doneToast", { ref: pick.ref }));
+  } catch (e) {
+    const wasCancelled = useDownloads.getState().tasks.find((x) => x.id === pick.id)?.cancelRequested;
+    useDownloads.getState().finish(pick.id, null, messageOf(e));
+    if (wasCancelled) toast.info(t("queue.cancelledToast", { ref: pick.ref }));
+    else toast.error(t("queue.failedToast", { ref: pick.ref }));
+  }
+}
+
 function pump() {
   const s = useDownloads.getState();
   const running = s.tasks.filter((t) => t.status === "running").length;
@@ -614,28 +683,12 @@ function pump() {
   for (const pick of picks) {
     useDownloads.setState((st) => ({
       tasks: st.tasks.map((x) =>
-        x.id === pick.id ? { ...x, status: "running" as const, startedAt: Date.now() } : x,
+        x.id === pick.id
+          ? { ...x, status: "running" as const, startedAt: Date.now(), checking: true }
+          : x,
       ),
     }));
-    void invoke<DownloadOutcome>("download_repo", {
-      input: pick.ref,
-      source: pick.source,
-      task: pick.id,
-      targetDir: pick.targetDir ?? null,
-      overwrite: pick.overwrite ?? false,
-      branch: pick.branch ?? null,
-    })
-      .then((res) => {
-        useDownloads.getState().finish(pick.id, res, null);
-        toast.success(t("queue.doneToast", { ref: pick.ref }));
-      })
-      .catch((e) => {
-        const wasCancelled =
-          useDownloads.getState().tasks.find((x) => x.id === pick.id)?.cancelRequested;
-        useDownloads.getState().finish(pick.id, null, messageOf(e));
-        if (wasCancelled) toast.info(t("queue.cancelledToast", { ref: pick.ref }));
-        else toast.error(t("queue.failedToast", { ref: pick.ref }));
-      });
+    void startTask(pick);
   }
 }
 

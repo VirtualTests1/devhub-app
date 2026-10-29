@@ -140,6 +140,16 @@ export type GitBootstrapStatus = {
 
 export type RefPreview = { slug: string; url: string; target: string; exists: boolean };
 
+/** Filesystem facts from `download_preflight` before a clone starts (r31-O2). */
+export type DownloadPreflight = {
+  target: string;
+  occupied: boolean;
+  empty: boolean;
+  freeBytes: number | null;
+  totalBytes: number | null;
+  pathError: string | null;
+};
+
 /** `GET /repos/{owner}/{repo}`, the subset the add page shows (r22-N1). */
 export type RepoFacts = {
   fullName: string;

@@ -2249,6 +2249,12 @@ const ZH = {
   "crash.cleared": "已清除 {time} 的崩溃报告",
   "crash.clearFailed": "清除失败：{msg}",
   "pw.importOkViews": "已导入项目墙与 {n} 个视图",
+  "queue.preflightOccupied": "目标目录已有内容：{path}。勾选「覆盖」或换一个落位目录后再下载。",
+  "queue.preflightPathUnknown": "落位路径不可用",
+  "queue.preflightPassed": "预检通过：{path}（{free}）",
+  "queue.preflightFree": "可用 {size}",
+  "queue.preflightFreeUnknown": "可用空间未知",
+  "queue.preflightFailed": "预检未通过：{ref}（详情见任务）",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4289,6 +4295,12 @@ const EN_VALUES = [
   "Cleared the crash report from {time}",
   "Could not clear: {msg}",
   "Imported the wall and {n} view(s)",
+  "The target directory already has content: {path}. Tick Overwrite or choose another landing directory.",
+  "The landing path is unusable",
+  "Preflight passed: {path} ({free})",
+  "{size} free",
+  "Free space unknown",
+  "Preflight failed for {ref}; see the task for the reason",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

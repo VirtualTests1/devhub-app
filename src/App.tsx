@@ -19,6 +19,7 @@ import { useMeta } from "./store/meta";
 import { slugOf } from "./lib/slug";
 import { createReloadGate, registerWatchRoots, watchRepoChanged } from "./lib/repo-watch";
 import type {
+  CrashReport,
   EnvironmentReport,
   GitBootstrapStatus,
   RefPreview,
@@ -201,6 +202,37 @@ export default function App() {
       ["ctrl+comma", () => setView("settings")],
     ]);
   }, [setView]);
+
+  /**
+   * Tell the user once that the previous process died abnormally.
+   *
+   * The report stays on disk until it is dismissed in 设置 → 故障与诊断; this
+   * effect only makes its existence visible at the moment it matters. The
+   * timestamp is the de-duplication key, so re-opening the app without clearing
+   * the report does not repeat the toast.
+   */
+  useEffect(() => {
+    let alive = true;
+    void invoke<CrashReport | null>("last_crash")
+      .then((report) => {
+        if (!alive || !report) return;
+        const seenKey = "devhub.crash.toastSeen.v1";
+        try {
+          if (localStorage.getItem(seenKey) === report.at) return;
+          localStorage.setItem(seenKey, report.at);
+        } catch {
+          /* private mode: showing the toast twice is the lesser failure */
+        }
+        const when = Number.isFinite(Date.parse(report.at))
+          ? new Date(report.at).toLocaleString()
+          : report.at;
+        toast.error(t("crash.detected", { time: when }));
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   /**
    * Guard against a stale refresh overwriting a newer save.

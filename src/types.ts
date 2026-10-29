@@ -818,6 +818,16 @@ export type AppUpdate = {
   fromCache?: boolean;
 };
 
+/** What the panic hook wrote beside the config after a previous abnormal exit. */
+export type CrashReport = {
+  at: string;
+  version: string;
+  message: string;
+  location: string | null;
+  thread: string | null;
+  backtrace: string | null;
+};
+
 /** Per-repository storage split (r28-N4). */
 export type StorageBreakdown = {
   totalBytes: number;

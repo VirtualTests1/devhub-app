@@ -2233,6 +2233,21 @@ const ZH = {
 "dl.lfsTitle": "仓库声明了 Git LFS；安装 git-lfs 后可在仓库内运行 git lfs pull 拉取对象。",
 "dl.submodules": "子模块未初始化",
 "dl.submodulesTitle": "仓库包含子模块；在仓库内运行 git submodule update --init --recursive 初始化。",
+"crash.detected": "检测到上次运行异常退出（{time}）；详情在 设置 → 故障与诊断。",
+"crash.title": "上次运行异常退出",
+"crash.at": "时间",
+"crash.location": "位置",
+"crash.thread": "线程",
+"crash.message": "信息",
+"crash.backtrace": "调用栈",
+"crash.copy": "复制报告",
+"crash.copied": "崩溃报告已复制（已隐藏令牌）",
+"crash.clipboardDenied": "无法写入剪贴板",
+"crash.clear": "清除报告",
+"crash.clearTitle": "清除崩溃报告",
+"crash.clearConfirm": "清除后无法恢复这次崩溃的本地记录。确定吗？",
+"crash.cleared": "已清除 {time} 的崩溃报告",
+"crash.clearFailed": "清除失败：{msg}",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4257,6 +4272,21 @@ const EN_VALUES = [
   "The repository declares Git LFS; with git-lfs installed, run git lfs pull inside it to fetch the objects.",
   "Submodules not initialised",
   "The repository contains submodules; run git submodule update --init --recursive inside it.",
+  "The previous run exited abnormally ({time}); details are in Settings → Failures & diagnostics.",
+  "Previous run exited abnormally",
+  "Time",
+  "Location",
+  "Thread",
+  "Message",
+  "Backtrace",
+  "Copy report",
+  "Crash report copied (tokens redacted)",
+  "Could not write to the clipboard",
+  "Clear report",
+  "Clear crash report",
+  "Clearing removes the local record of this crash permanently. Continue?",
+  "Cleared the crash report from {time}",
+  "Could not clear: {msg}",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

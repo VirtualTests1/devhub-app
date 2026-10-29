@@ -11,6 +11,7 @@ mod auth;
 mod cache;
 mod clone_hazards;
 mod covers;
+mod crash;
 mod deps;
 mod deeplink;
 mod diagnostics;
@@ -4528,6 +4529,10 @@ pub fn run() {
         .manage(Settings::from_config(&read_config()))
         .manage(downloads_cmd::DownloadCancels::default())
         .setup(|app| {
+            // First, so a panic during the rest of setup is also recorded. The
+            // hook runs before `panic = "abort"` terminates the process and only
+            // writes a local file; see docs/research/crash-observability.md.
+            crash::install(crash::crash_path());
             // One reaping/push loop for the process table: a crash is pushed within
             // `WATCH_EVERY` instead of waiting for the webview's 2 s poll, which
             // stays in place as the authoritative fallback.
@@ -4609,6 +4614,8 @@ pub fn run() {
             storage_cmd::repo_storage_breakdown,
             update_check::check_app_update,
             update_check::app_version,
+            crash::last_crash,
+            crash::clear_crash,
             ensure_git,
             git_bootstrap_status,
             repo_detail,

@@ -1,12 +1,17 @@
+import { useEffect, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Copy, Trash2, TriangleAlert } from "lucide-react";
 
 import { ActionRow, SettingsGroup } from "../../components/SettingsRows";
 import { toast } from "../../components/Toast";
 import { confirmDestructive } from "../../lib/confirm";
+import { redactSecrets } from "../../lib/download-diagnostics";
+import { messageOf } from "../../lib/report-error";
 import { useI18n } from "../../lib/useI18n";
 import { useAppearance } from "../../store/appearance";
 import { useFailures, type FailureEntry, type FailureKind } from "../../store/failures";
 import { formatTime } from "../records/format";
+import type { CrashReport } from "../../types";
 
 /**
  * 设置 → 故障与诊断 (r18 N1).
@@ -52,6 +57,39 @@ export function FailureHistorySection() {
   const entries = useFailures((s) => s.entries);
   const clear = useFailures((s) => s.clear);
   const timeFormat = useAppearance((s) => s.recordTimeFormat);
+  const [crash, setCrash] = useState<CrashReport | null>(null);
+
+  // Read once on mount. The file stays until 清除 is pressed, so a crash can be
+  // pasted into an issue after the first look; a read failure is not worth a
+  // toast in a diagnostics panel that is already the place to look.
+  useEffect(() => {
+    let alive = true;
+    void invoke<CrashReport | null>("last_crash")
+      .then((r) => {
+        if (alive) setCrash(r);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  function crashTime(report: CrashReport): string {
+    const ms = Date.parse(report.at);
+    return Number.isFinite(ms) ? formatTime(ms / 1000, timeFormat) : report.at;
+  }
+
+  function crashText(report: CrashReport): string[] {
+    return [
+      t("crash.title"),
+      `${t("crash.at")}: ${report.at}`,
+      `${t("diag.version")}: ${report.version}`,
+      ...(report.location ? [`${t("crash.location")}: ${report.location}`] : []),
+      ...(report.thread ? [`${t("crash.thread")}: ${report.thread}`] : []),
+      `${t("crash.message")}: ${redactSecrets(report.message)}`,
+      ...(report.backtrace ? [`${t("crash.backtrace")}:`, redactSecrets(report.backtrace)] : []),
+    ];
+  }
 
   /** Same clipboard contract as every other copy action: success and failure
    *  both come back as a toast, and the failure copy says what to do instead. */
@@ -74,6 +112,30 @@ export function FailureHistorySection() {
     toast.success(t("settings.page.failuresCleared"));
   }
 
+  async function copyCrash(report: CrashReport) {
+    try {
+      await navigator.clipboard.writeText(crashText(report).join("\n"));
+      toast.success(t("crash.copied"));
+    } catch {
+      toast.error(t("crash.clipboardDenied"));
+    }
+  }
+
+  async function clearCrash(report: CrashReport) {
+    const ok = await confirmDestructive(t("crash.clearConfirm"), {
+      title: t("crash.clearTitle"),
+      okLabel: t("crash.clear"),
+    });
+    if (!ok) return;
+    try {
+      await invoke("clear_crash");
+      setCrash(null);
+      toast.success(t("crash.cleared", { time: crashTime(report) }));
+    } catch (e) {
+      toast.error(t("crash.clearFailed", { msg: messageOf(e) }));
+    }
+  }
+
   return (
     <SettingsGroup
       title={t("settings.section.diagnostics")}
@@ -81,6 +143,53 @@ export function FailureHistorySection() {
       sectionId="diagnostics"
       footnote={t("settings.page.diagnosticsFootnote")}
     >
+      {crash && (
+        <div
+          role="alert"
+          className="m-2 border border-danger/40 bg-danger/5 p-2.5 text-caption"
+        >
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <TriangleAlert className="h-3.5 w-3.5 shrink-0 text-danger" />
+            <span className="font-medium text-danger">{t("crash.title")}</span>
+            <span className="font-mono text-muted-foreground">{crashTime(crash)}</span>
+            <span className="text-muted-foreground">v{crash.version}</span>
+          </div>
+          <pre className="mt-1.5 max-h-32 overflow-auto whitespace-pre-wrap break-words font-sans leading-relaxed text-foreground">
+            {redactSecrets(crash.message)}
+          </pre>
+          <p className="mt-1 break-all text-muted-foreground">
+            {[crash.location, crash.thread].filter(Boolean).join(" · ") || "—"}
+          </p>
+          {crash.backtrace && (
+            <details className="mt-1">
+              <summary className="cursor-pointer text-muted-foreground">
+                {t("crash.backtrace")}
+              </summary>
+              <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all text-muted-foreground">
+                {redactSecrets(crash.backtrace)}
+              </pre>
+            </details>
+          )}
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void copyCrash(crash)}
+              className="skin-ctl flex items-center gap-1 border border-border px-2 py-1 text-caption text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
+              <Copy className="h-3 w-3" />
+              {t("crash.copy")}
+            </button>
+            <button
+              type="button"
+              onClick={() => void clearCrash(crash)}
+              className="skin-ctl flex items-center gap-1 border border-danger/40 px-2 py-1 text-caption text-danger transition-colors hover:bg-danger/10"
+            >
+              <Trash2 className="h-3 w-3" />
+              {t("crash.clear")}
+            </button>
+          </div>
+        </div>
+      )}
       {entries.length === 0 ? (
         <div className="flex items-center gap-2 px-2.5 py-1.5 text-caption text-muted-foreground">
           <TriangleAlert className="h-3.5 w-3.5 shrink-0 opacity-70" />

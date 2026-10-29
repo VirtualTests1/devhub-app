@@ -48,17 +48,23 @@ const I18N_PATH = "src/lib/i18n.ts";
 const RAW = readFileSync(I18N_PATH, "utf8");
 const SRC = RAW.replace(/\r\n/g, "\n");
 const LINES = SRC.split("\n");
+// r32-O1: English values live in a lazy chunk; both files are budgeted below.
+const EN_PATH = "src/lib/i18n-en.ts";
+const EN_RAW = readFileSync(EN_PATH, "utf8");
+const EN_SRC = EN_RAW.replace(/\r\n/g, "\n");
+const EN_LINES = EN_SRC.split("\n");
 /** 字节数走 TextEncoder 而非 statSync：tests/helpers/node-builtins.d.ts 的最小
  *  `node:fs` stub 只声明了 `{ isDirectory() }`，没有 `.size`（也不该为本文件去改共享 stub）。 */
 const RAW_BYTES = new TextEncoder().encode(RAW).length;
+const EN_BYTES = new TextEncoder().encode(EN_RAW).length;
 
 /** 行首缩进两格的 `"键":` —— ZH 表、以及任何重新长出来的键表都长这样。 */
 const KEY_LINE = /^ {2}"((?:[^"\\]|\\.)*)":/;
 
 const ZH_START = LINES.indexOf("const ZH = {");
 const ZH_END = LINES.indexOf("} as const;", ZH_START);
-const VALUES_START = LINES.indexOf("const EN_VALUES = [");
-const VALUES_END = LINES.indexOf("] as const;", VALUES_START);
+const VALUES_START = EN_LINES.indexOf("export const EN_VALUES = [");
+const VALUES_END = EN_LINES.indexOf("] as const;", VALUES_START);
 
 /** 全文件里每个行首键名出现了几次（第二张键表一旦长回来，这里立刻 >1）。 */
 const keyOccurrences = new Map<string, number>();
@@ -79,7 +85,7 @@ if (ZH_START >= 0 && ZH_END > ZH_START) {
 /** EN 值数组里真正的值行（缩进两格 + 引号开头；注释行与空行不算）。 */
 const VALUE_LINES =
   VALUES_START >= 0 && VALUES_END > VALUES_START
-    ? LINES.slice(VALUES_START + 1, VALUES_END).filter((l) => /^ {2}["']/.test(l))
+    ? EN_LINES.slice(VALUES_START + 1, VALUES_END).filter((l) => /^ {2}["']/.test(l))
     : [];
 
 test("bundle diet 1: 词条键在 src/lib/i18n.ts 里只写一遍（键名写第二遍 ≈ 25 KB 回潮）", () => {
@@ -97,6 +103,8 @@ test("bundle diet 1: 词条键在 src/lib/i18n.ts 里只写一遍（键名写第
 
 test("bundle diet 2: EN 值数组与 ZH 键数等长（少一项整体错位，多一项是死译文）", () => {
   assert.ok(VALUES_START >= 0 && VALUES_END > VALUES_START, "EN_VALUES 的标记行没扫到——结构改了，本文件必须跟着改");
+  const keyLinesInEn = EN_LINES.filter((l) => KEY_LINE.test(l)).length;
+  assert.equal(keyLinesInEn, 0, "英文值文件里长出了键表（值数组必须只有值）");
   assert.equal(
     VALUE_LINES.length,
     ZH_KEYS.length,
@@ -143,11 +151,21 @@ test("bundle diet 3: src/lib/i18n.ts 体积棘轮（抬高上限必须在提交�
   // LFS/submodule warnings and crash reports add 100 paired keys (measured
   // 229,032 B). All are literal call sites; bundle diet 1 still proves the key
   // table did not grow a second copy.
-  const I18N_MAX_BYTES = 232_000;
-  const size = RAW_BYTES;
+  // r32-O1 split the English values into src/lib/i18n-en.ts (a lazy chunk).
+  // Measured after the split and this round's new keys:
+  //   i18n.ts 149,543 B (zh table + lookup + lazy loader)
+  //   i18n-en.ts 83,742 B (values only)
+  // Each ceiling leaves ~2 KB for a normal round; a second key table still
+  // fails bundle diet 1/2 before size is considered.
+  const I18N_MAX_BYTES = 152_000;
+  const EN_MAX_BYTES = 86_000;
   assert.ok(
-    size <= I18N_MAX_BYTES,
-    `${I18N_PATH} 现在 ${size} B，超过棘轮 ${I18N_MAX_BYTES} B。若这是正当的文案增长，抬高上限并在提交里写明理由（r21-o2 并入后实测 167,411 B / 并入前 148,432 B / 对象形态回归特征值 199,699 B）；若不是，先看是不是有第二张键表长回来了（bundle diet 1 会点名）`,
+    RAW_BYTES <= I18N_MAX_BYTES,
+    `${I18N_PATH} 现在 ${RAW_BYTES} B，超过棘轮 ${I18N_MAX_BYTES} B（r32-O1 拆分后实测 149,543 B）。正当增长就抬高并写明理由；否则先查第二张键表`,
+  );
+  assert.ok(
+    EN_BYTES <= EN_MAX_BYTES,
+    `${EN_PATH} 现在 ${EN_BYTES} B，超过棘轮 ${EN_MAX_BYTES} B（r32-O1 拆分后实测 83,742 B）。值数组只能有值，加键必须同时加值`,
   );
 });
 

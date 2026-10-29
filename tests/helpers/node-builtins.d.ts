@@ -125,6 +125,11 @@ declare module "node:path" {
   export function resolve(...parts: string[]): string;
 }
 
+declare module "node:url" {
+  /** Used by the lazy-locale test to hand a Windows-safe module URL to a child. */
+  export function pathToFileURL(path: string): { href: string };
+}
+
 declare module "node:child_process" {
   /** The subset of `SpawnSyncReturns<string>` that `checkers.test.ts` reads. */
   export type SpawnSyncResult = {
@@ -137,7 +142,14 @@ declare module "node:child_process" {
   export function spawnSync(
     command: string,
     args?: string[],
-    options?: { encoding?: "utf8"; cwd?: string; timeout?: number; shell?: boolean },
+    options?: {
+      encoding?: "utf8";
+      cwd?: string;
+      timeout?: number;
+      shell?: boolean;
+      /** The lazy-locale child sets DEVHUB_TEST_SKIP_ENGLISH through this. */
+      env?: Record<string, string | undefined>;
+    },
   ): SpawnSyncResult;
 }
 
@@ -149,4 +161,6 @@ declare const process: {
   execPath: string;
   /** e.g. `v22.19.0` — Node's own version string, as `process.version`. */
   version: string;
+  /** Environment passed through to a child process; read, never mutated here. */
+  env: Record<string, string | undefined>;
 };

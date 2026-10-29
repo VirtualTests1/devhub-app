@@ -1,7 +1,7 @@
 import { useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
-import { Download, Eye, History, LayoutGrid, Search, SlidersHorizontal, Trash2, Upload } from "lucide-react";
+import { Download, Eye, FileText, History, LayoutGrid, Search, SlidersHorizontal, Trash2, Upload } from "lucide-react";
 import { toast } from "../../components/Toast";
 import { confirmDestructive } from "../../lib/confirm";
 import { latestSnapshot } from "../../lib/wall-snapshot";
@@ -16,6 +16,7 @@ import { messageOf } from "../../lib/report-error";
 import { WALL_DENSITIES, FILTERS, SORTS, slugOf, useWall } from "../../store/wall";
 import { useWallViews } from "../../store/wall-views";
 import { buildWallXfer, parseWallXfer } from "../../store/wall-xfer";
+import { buildWallMarkdown, rowsFromWall } from "../../lib/wall-export";
 import type { RepoRef } from "../../types";
 import { useI18n } from "../../lib/useI18n";
 import type { TranslationKey } from "../../lib/i18n";
@@ -81,6 +82,34 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
       setXferBusy(false);
     }
   }, [sort, filter, grouped, density, states, t]);
+
+  const exportMarkdown = useCallback(async () => {
+    const picked = await saveDialog({
+      title: t("pw.exportMdTitle"),
+      defaultPath: "devhub-wall.md",
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    });
+    if (!picked) return;
+    setXferBusy(true);
+    try {
+      const rows = rowsFromWall(repos, states);
+      const text = buildWallMarkdown(rows, {
+        title: t("pw.mdTitle"),
+        name: t("pw.mdColName"),
+        alias: t("pw.mdColAlias"),
+        tags: t("pw.mdColTags"),
+        note: t("pw.mdColNote"),
+        path: t("pw.mdColPath"),
+        empty: t("pw.mdEmpty"),
+      });
+      await invoke("write_text_file", { path: picked, text });
+      toast.success(t("pw.exportMdOk", { n: rows.length }));
+    } catch (e) {
+      toast.error(t("pw.exportMdFail", { reason: messageOf(e) }));
+    } finally {
+      setXferBusy(false);
+    }
+  }, [repos, states, t]);
 
   const importWall = useCallback(async () => {
     const picked = await openDialog({
@@ -194,6 +223,15 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
         secondary
         disabled={xferBusy}
         onAction={() => void exportWall()}
+      />
+      <ActionRow
+        icon={<FileText className="h-4 w-4" />}
+        title={t("pw.exportMdTitle")}
+        hint={t("pw.exportMdHint")}
+        actionLabel={t("pw.exportMdAction")}
+        secondary
+        disabled={xferBusy}
+        onAction={() => void exportMarkdown()}
       />
       <ActionRow
         icon={<Upload className="h-4 w-4" />}

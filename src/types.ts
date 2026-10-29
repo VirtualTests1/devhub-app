@@ -182,6 +182,12 @@ export type DownloadOutcome = {
   attempts: AttemptRecord[];
   degraded: boolean;
   viaThirdParty: boolean;
+  /** Post-clone warnings (r30-R1); absent on an older backend. */
+  hazards?: {
+    lfsPointers: number;
+    submodules: boolean;
+    lfsUnchecked: boolean;
+  };
 };
 
 /**

@@ -9,6 +9,7 @@ mod activity;
 mod activity_cmd;
 mod auth;
 mod cache;
+mod clone_hazards;
 mod covers;
 mod deps;
 mod deeplink;

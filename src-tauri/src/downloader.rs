@@ -305,6 +305,12 @@ pub struct DownloadOutcome {
     pub degraded: bool,
     /// True when third-party infrastructure carried the code. The UI must say so.
     pub via_third_party: bool,
+    /// Post-clone integrity warnings (r30-R1): LFS pointers left on disk,
+    /// submodules declared but not initialised, or an LFS scan that could not
+    /// finish. Not a failure — the repository is usable and the UI shows them
+    /// as warnings beside the success.
+    #[serde(default)]
+    pub hazards: crate::clone_hazards::CloneHazards,
 }
 
 /// What one 更新 (`git pull --ff-only`) accomplished.
@@ -819,7 +825,7 @@ fn find_git_uncached(bundled_runtime: Option<&Path>) -> Option<GitLocation> {
 /// It cannot make a landing directory whose own path is over 260 characters
 /// work: git must `chdir` there first, and Windows refuses that. `download_inner`
 /// refuses such a target with a clear message instead of leaving a broken clone.
-fn git_cmd(git: &Path) -> std::process::Command {
+pub(crate) fn git_cmd(git: &Path) -> std::process::Command {
     let mut cmd = crate::proc::silent(git);
     cmd.arg("-c").arg("core.longpaths=true");
     cmd
@@ -4145,12 +4151,17 @@ impl Downloader {
         crate::write_atomic(&marker_path(target), text.as_bytes())
             .map_err(|e| DownloadError::Io(format!("写入 .devhub.json 失败: {e}")))?;
 
+        // Bounded and non-fatal: a warning must never turn a completed clone
+        // into a failed download. The detector itself never propagates errors.
+        let hazards = crate::clone_hazards::detect(std::path::Path::new(&self.git.path), target);
+
         Ok(DownloadOutcome {
             layer,
             path: target.to_string_lossy().to_string(),
             attempts,
             degraded,
             via_third_party,
+            hazards,
         })
     }
 

@@ -2228,6 +2228,11 @@ const ZH = {
 "pw.snapshotConfirm": "还原会覆盖当前的项目墙别名、标签、备注、封面与布局。项目文件不受影响。确定吗？",
 "pw.snapshotDone": "已还原 {time} 的快照",
 "pw.snapshotFail": "没有可还原的快照",
+"dl.lfsPointers": "Git LFS 指针 {n} 个",
+"dl.lfsUnchecked": "LFS 未核验",
+"dl.lfsTitle": "仓库声明了 Git LFS；安装 git-lfs 后可在仓库内运行 git lfs pull 拉取对象。",
+"dl.submodules": "子模块未初始化",
+"dl.submodulesTitle": "仓库包含子模块；在仓库内运行 git submodule update --init --recursive 初始化。",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4247,6 +4252,11 @@ const EN_VALUES = [
   "Restoring overwrites the wall's current aliases, tags, notes, covers and layout. Project files are untouched. Continue?",
   "Restored the {time} snapshot",
   "No snapshot to restore",
+  "Git LFS pointers: {n}",
+  "LFS not verified",
+  "The repository declares Git LFS; with git-lfs installed, run git lfs pull inside it to fetch the objects.",
+  "Submodules not initialised",
+  "The repository contains submodules; run git submodule update --init --recursive inside it.",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

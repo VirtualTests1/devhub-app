@@ -571,6 +571,27 @@ function OutcomeBlock({ outcome }: { outcome: DownloadOutcome }) {
             {t("dl.degraded")}
           </span>
         )}
+        {outcome.hazards && outcome.hazards.lfsPointers > 0 && (
+          <span
+            title={t("dl.lfsTitle")}
+            className="rounded-full bg-warning/15 px-2 py-0.5 text-warning"
+          >
+            {t("dl.lfsPointers", { n: outcome.hazards.lfsPointers })}
+          </span>
+        )}
+        {outcome.hazards?.lfsUnchecked && (
+          <span title={t("dl.lfsTitle")} className="rounded-full bg-warning/15 px-2 py-0.5 text-warning">
+            {t("dl.lfsUnchecked")}
+          </span>
+        )}
+        {outcome.hazards?.submodules && (
+          <span
+            title={t("dl.submodulesTitle")}
+            className="rounded-full bg-warning/15 px-2 py-0.5 text-warning"
+          >
+            {t("dl.submodules")}
+          </span>
+        )}
       </div>
       <ul className="mt-2 space-y-1">
         {outcome.attempts.map((a, i) => (

@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow";
 import {
   ChevronDown,
   ChevronRight,
+  Flag,
   FolderOpen,
   Pause,
   Play,
@@ -235,6 +236,7 @@ const QueueRow = memo(function QueueRow({
   const addTask = useDownloads((s) => s.add);
   const pause = useDownloads((s) => s.pause);
   const resume = useDownloads((s) => s.resume);
+  const setPriority = useDownloads((s) => s.setPriority);
   const cancel = useDownloads((s) => s.cancel);
   const { t } = useI18n();
   if (!task) return null;
@@ -294,6 +296,21 @@ const QueueRow = memo(function QueueRow({
         <code className="min-w-0 flex-1 truncate text-caption font-medium">{task.ref}</code>
         <span className="app-desc shrink-0 text-caption text-muted-foreground">{task.source}</span>
         <Elapsed task={task} />
+        {task.status === "queued" && (
+          <button
+            type="button"
+            onClick={() => setPriority(id, task.priority !== true)}
+            aria-pressed={task.priority === true}
+            aria-label={task.priority ? t("queue.unpriorityAria", { ref: task.ref }) : t("queue.priorityAria", { ref: task.ref })}
+            title={t("queue.priority")}
+            className={cn(
+              "shrink-0 rounded p-0.5 transition-colors",
+              task.priority ? "text-info" : "text-muted-foreground/60 hover:text-foreground",
+            )}
+          >
+            <Flag className={cn("h-3 w-3", task.priority && "fill-current")} />
+          </button>
+        )}
         {task.status === "queued" && (
           <button
             type="button"
@@ -426,6 +443,7 @@ function QueueMenu({
   const addTask = useDownloads((s) => s.add);
   const pause = useDownloads((s) => s.pause);
   const resume = useDownloads((s) => s.resume);
+  const setPriority = useDownloads((s) => s.setPriority);
   const cancel = useDownloads((s) => s.cancel);
   const setOpenSlug = useUI((s) => s.setOpenSlug);
   const { t } = useI18n();
@@ -482,6 +500,14 @@ function QueueMenu({
       disabled: task.status !== "queued",
       note: task.status === "running" ? t("queue.pauseUnavailable") : undefined,
       onSelect: () => (task.paused ? resume(id) : pause(id)),
+    },
+    {
+      id: "priority",
+      label: task.priority ? t("queue.menuUnpriority") : t("queue.menuPriority"),
+      icon: <Flag className="h-3.5 w-3.5" />,
+      disabled: task.status !== "queued",
+      note: task.status !== "queued" ? t("queue.priorityUnavailable") : undefined,
+      onSelect: () => setPriority(id, task.priority !== true),
     },
     {
       id: "cancel",

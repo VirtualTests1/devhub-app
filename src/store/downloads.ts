@@ -87,6 +87,13 @@ export type DownloadTask = {
    * killing it would leave a half-written landing directory.
    */
   paused?: boolean;
+  /**
+   * A queued task the user marked 优先下载. The scheduler serves marked rows
+   * before unmarked ones (oldest first inside each group); it does not reorder
+   * the timeline or start anything the moment the flag flips. Only meaningful
+   * while `status === "queued"`.
+   */
+  priority?: boolean;
   /** Bytes/sec-ish text taken from git's own progress line. */
   lastLine: string;
 };
@@ -117,6 +124,8 @@ type State = {
   pause: (id: string) => void;
   /** Release a held row; `pump` gets a fresh chance to start it immediately. */
   resume: (id: string) => void;
+  /** Mark/unmark a queued row as 优先下载. Running and settled rows ignore it. */
+  setPriority: (id: string, on: boolean) => void;
   /** Stop a running clone. The backend kills the tree and removes the partial dir. */
   cancel: (id: string) => void;
   dismiss: (id: string) => void;
@@ -225,13 +234,11 @@ export function startableTasks(
   slots: number,
 ): DownloadTask[] {
   const limit = Number.isFinite(slots) ? Math.max(0, Math.floor(slots)) : 0;
-  const out: DownloadTask[] = [];
-  for (const task of inServiceOrder(tasks)) {
-    if (out.length >= limit) break;
-    if (task.status !== "queued" || task.paused) continue;
-    out.push(task);
-  }
-  return out;
+  if (limit === 0) return [];
+  const eligible = inServiceOrder(tasks).filter((t) => t.status === "queued" && !t.paused);
+  const prioritized = eligible.filter((t) => t.priority === true);
+  const normal = eligible.filter((t) => t.priority !== true);
+  return [...prioritized, ...normal].slice(0, limit);
 }
 
 let seq = 0;
@@ -358,6 +365,7 @@ export function recoveredTasks(): DownloadTask[] {
       failure: queued ? null : (failed ? (row.failure ?? t("queue.interrupted")) : t("queue.interrupted")),
       status: queued ? ("queued" as const) : ("failed" as const),
       paused: queued || undefined,
+      priority: row.priority || undefined,
       interrupted: !queued && !failed,
       lastLine: "",
     };
@@ -528,6 +536,18 @@ export const useDownloads = create<State>((set, get) => ({
       tasks: s.tasks.map((t) => (t.id === id ? { ...t, paused: false } : t)),
     }));
     persistRecovery(get().tasks);
+    pump();
+  },
+
+  setPriority: (id, on) => {
+    const task = get().tasks.find((t) => t.id === id);
+    if (!task || task.status !== "queued" || Boolean(task.priority) === on) return;
+    set((s) => ({
+      tasks: s.tasks.map((t) => (t.id === id ? { ...t, priority: on || undefined } : t)),
+    }));
+    persistRecovery(get().tasks);
+    // A free slot should go to the row that just became urgent; a full queue
+    // keeps its in-flight clones untouched.
     pump();
   },
 

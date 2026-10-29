@@ -54,6 +54,8 @@ export type RecoverableTask = {
   failure?: string;
   /** v2: when the row settled, for a failed row. */
   endedAt?: number;
+  /** v2 additive: the user marked this queued row 优先下载 before quitting. */
+  priority?: boolean;
 };
 
 export type RecoveryStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -79,6 +81,8 @@ export type RecoverySourceTask = {
   status: "queued" | "running" | "done" | "failed" | "cancelled";
   /** A user-held row never reached the backend; v2 restores it held. */
   paused?: boolean;
+  /** The scheduler's 优先下载 flag; only meaningful for a queued row. */
+  priority?: boolean;
   failure?: string | null;
   endedAt?: number;
 };
@@ -110,12 +114,12 @@ function boundedFailure(raw: unknown): string | undefined {
 export function captureRecovered(tasks: readonly RecoverySourceTask[]): RecoverableTask[] {
   const out: RecoverableTask[] = [];
   const rank = new Map<string, number>();
-  const order: { task: RecoverableTask; priority: number }[] = [];
+  const order: { task: RecoverableTask; rankWeight: number }[] = [];
   for (const task of tasks) {
     if (task.status !== "queued" && task.status !== "running" && task.status !== "failed") continue;
     const ref = task.ref.trim();
     if (!ref) continue;
-    const priority = task.status === "failed" ? 0 : 1;
+    const rankWeight = task.status === "failed" ? 0 : 1;
     const row: RecoverableTask = {
       id: task.id,
       ref,
@@ -125,6 +129,7 @@ export function captureRecovered(tasks: readonly RecoverySourceTask[]): Recovera
       ...(task.branch?.trim() ? { branch: task.branch.trim() } : {}),
       startedAt: task.startedAt,
       status: task.status,
+      ...(task.status === "queued" && task.priority ? { priority: true } : {}),
       ...(task.status === "failed" && boundedFailure(task.failure)
         ? { failure: boundedFailure(task.failure) }
         : {}),
@@ -135,12 +140,12 @@ export function captureRecovered(tasks: readonly RecoverySourceTask[]): Recovera
     const current = rank.get(ref);
     if (current === undefined) {
       rank.set(ref, order.length);
-      order.push({ task: row, priority });
+      order.push({ task: row, rankWeight });
     } else {
       const prior = order[current];
-      if (prior && priority > prior.priority) {
+      if (prior && rankWeight > prior.rankWeight) {
         // Keep the row's original position but prefer the active copy.
-        order[current] = { task: row, priority };
+        order[current] = { task: row, rankWeight };
       }
     }
   }
@@ -191,6 +196,7 @@ export function parseRecovered(raw: string | null): RecoverableTask[] {
       ...(typeof r.branch === "string" && r.branch.trim() ? { branch: r.branch.trim() } : {}),
       startedAt: r.startedAt,
       status,
+      ...(status === "queued" && r.priority === true ? { priority: true } : {}),
       ...(status === "failed" && boundedFailure(r.failure)
         ? { failure: boundedFailure(r.failure) }
         : {}),

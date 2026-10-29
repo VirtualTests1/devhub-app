@@ -275,11 +275,16 @@ info.push(
 // 2026-10-29 (r31): table/task-list rendering, view export, WebView2/About row,
 // preflight messages and batch-stop UI. Measured 1,145,471 / 79,782 / 257,827 /
 // 1,225,253 / 747,430 B; each constant is the measurement + 1 KB headroom.
-const JS_TOTAL_MAX_BYTES = 1_146_495; // measured 1,145,471 B + 1 KB cross-machine headroom
-const CSS_TOTAL_MAX_BYTES = 80_806; // measured 79,782 B on 2026-10-29 (r31) + 1 KB headroom
-const SINGLE_CHUNK_MAX_BYTES = 258_851; // measured max 257,827 B (ui-shared) on 2026-10-29 + 1 KB headroom
-const JS_CSS_TOTAL_MAX_BYTES = 1_226_277; // measured 1,225,253 B + 1 KB cross-machine headroom
-const INITIAL_JS_MAX_BYTES = 748_454; // measured 747,430 B + 1 KB cross-machine headroom
+// r32: the English dictionary became a lazy chunk. Initial JS fell from
+// 747,430 B to 682,319 B (−65,111 B, −8.7%) while total JS rose 12,234 B from
+// this round's four new UI surfaces (queue priority/history, Markdown export,
+// commit history). The ceiling follows the measurement; the initial-JS number
+// is the one that actually describes what a launch downloads.
+const JS_TOTAL_MAX_BYTES = 1_159_753; // measured 1,158,729 B + 1 KB cross-machine headroom
+const CSS_TOTAL_MAX_BYTES = 81_204; // measured 80,180 B on 2026-10-29 (r32) + 1 KB headroom
+const SINGLE_CHUNK_MAX_BYTES = 207_876; // measured max 206,852 B (vendor-react-dom, i18n split) + 1 KB headroom
+const JS_CSS_TOTAL_MAX_BYTES = 1_239_933; // measured 1,238,909 B + 1 KB cross-machine headroom
+const INITIAL_JS_MAX_BYTES = 683_343; // measured 682,319 B after the i18n split + 1 KB headroom
 
 // A chunk is a "single chunk" for the per-file ceiling only if it is actually
 // loaded as one unit; sourcemaps are not, so they are excluded above.

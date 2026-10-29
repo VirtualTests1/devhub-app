@@ -112,3 +112,37 @@ test("slugOf 对合法仓库永不产出空串——对齐 lib.rs:6196 的 !href
   assert.ok(slug.length > 0, "slug 不能为空");
   assert.equal(slug, "github.com/carol/marked_only");
 });
+
+test("facets: language/category intersect with search and tags; missing metadata never matches", async () => {
+  const { filterWallCards } = await import("../src/lib/wall-derive.ts");
+  const cards = [
+    { slug: "a", repo: "alpha", owner: "o", path: "D:/a" },
+    { slug: "b", repo: "beta", owner: "o", path: "D:/b" },
+    { slug: "c", repo: "gamma", owner: "o", path: "D:/c" },
+  ];
+  const ctx = {
+    query: "",
+    filter: "all" as const,
+    states: { a: { tags: ["web"] }, b: { tags: ["web"] } },
+    usage: {},
+    running: { has: () => false },
+    activeTags: ["web"],
+    metaBySlug: {
+      a: { language: "Rust", category: "rust" } as never,
+      b: { language: "Python", category: "python" } as never,
+    },
+    language: "Rust",
+    category: "",
+  };
+  assert.deepEqual(filterWallCards(cards, ctx).map((c) => c.slug), ["a"]);
+  assert.deepEqual(
+    filterWallCards(cards, { ...ctx, language: "", category: "python" }).map((c) => c.slug),
+    ["b"],
+  );
+  assert.deepEqual(filterWallCards(cards, { ...ctx, language: "Rust", category: "python" }), []);
+  // c has no metadata: it must never be pulled into a facet result.
+  assert.deepEqual(
+    filterWallCards(cards, { ...ctx, activeTags: [], language: "Rust" }).map((c) => c.slug),
+    ["a"],
+  );
+});

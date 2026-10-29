@@ -2134,6 +2134,9 @@ const ZH = {
   "queue.retryFailed": "重试失败（{n}）",
   "queue.retryQueued": "已重新排队 {n} 个失败任务",
   "queue.retryLog": "重新排队",
+  "wall.facet.language": "语言",
+  "wall.facet.category": "类别",
+  "wall.facet.all": "全部",
   "settings.search.kw.about": "关于,更新,版本,release",
   "app.credentialsScrubbed": "已从 {n} 个仓库的 git 配置中移除旧的 GitHub 令牌",
 } as const;
@@ -4061,6 +4064,9 @@ const EN_VALUES = [
   "Retry failed ({n})",
   "Re-queued {n} failed tasks",
   "Re-queued",
+  "Language",
+  "Category",
+  "All",
   "about,update,version,release",
   "Removed an old GitHub token from {n} repositories' git config",
 ] as const;

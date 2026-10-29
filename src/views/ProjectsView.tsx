@@ -101,6 +101,7 @@ import { windowGroups } from "../lib/wall-window";
 import { useWallWindow } from "../lib/use-wall-window";
 import { isWallNavKey, nextCardIndex } from "../lib/wall-keyboard";
 import {
+  CATEGORY_LABEL,
   formatBytes,
   type Freshness,
   type FreshnessManyRow,
@@ -314,6 +315,8 @@ export function ProjectsView({
   const selSlugs = useSelection((s) => s.slugs);
 
   const [query, setQuery] = useState("");
+  const [langFilter, setLangFilter] = useState("");
+  const [catFilter, setCatFilter] = useState("");
   const [menu, setMenu] = useState<Menu>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   // The menu stays in the DOM for one exit-duration after 关闭, which is what lets
@@ -445,6 +448,34 @@ export function ProjectsView({
     return kept;
   }, [tagChips, tagFilter]);
 
+  const languageOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of visible) {
+      const lang = metaBySlug[c.slug]?.language;
+      if (lang) counts.set(lang, (counts.get(lang) ?? 0) + 1);
+    }
+    return [
+      { id: "", label: t("wall.facet.all"), note: String(visible.length) },
+      ...Array.from(counts.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([id, n]) => ({ id, label: id, note: String(n) })),
+    ];
+  }, [visible, metaBySlug, t]);
+
+  const categoryOptions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of visible) {
+      const cat = metaBySlug[c.slug]?.category;
+      if (cat) counts.set(cat, (counts.get(cat) ?? 0) + 1);
+    }
+    return [
+      { id: "", label: t("wall.facet.all"), note: String(visible.length) },
+      ...Array.from(counts.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([id, n]) => ({ id, label: CATEGORY_LABEL[id] ?? id, note: String(n) })),
+    ];
+  }, [visible, metaBySlug, t]);
+
   const matched = useMemo(
     // 派生管道抽到 lib/wall-derive.ts（r17-o2-3）：谓词原先写在这个 .tsx 里，
     // Node 的 type-stripping 无法从 JSX 取类型，于是「标签与筛选如何相交」这一层
@@ -457,8 +488,11 @@ export function ProjectsView({
         usage,
         running: runningBySlug,
         activeTags,
+        metaBySlug,
+        language: langFilter,
+        category: catFilter,
       }),
-    [visible, q, filter, usage, states, runningBySlug, activeTags],
+    [visible, q, filter, usage, states, runningBySlug, activeTags, metaBySlug, langFilter, catFilter],
   );
 
   /**
@@ -1388,6 +1422,20 @@ export function ProjectsView({
           </div>
 
           <div className="col-span-2 flex flex-wrap items-center gap-2">
+            <MenuSelect
+              value={langFilter}
+              options={languageOptions}
+              onChange={setLangFilter}
+              ariaLabel={t("wall.facet.language")}
+              prefix={t("wall.facet.language")}
+            />
+            <MenuSelect
+              value={catFilter}
+              options={categoryOptions}
+              onChange={setCatFilter}
+              ariaLabel={t("wall.facet.category")}
+              prefix={t("wall.facet.category")}
+            />
             <Segmented<FilterId>
               value={filter}
               ariaLabel={t("wall.filterSeg.aria")}
@@ -1742,6 +1790,8 @@ export function ProjectsView({
               setQuery("");
               setPref("filter", "all");
               setTagFilter([]);
+              setLangFilter("");
+              setCatFilter("");
             }}
             className="skin-ctl mt-3 border border-border px-3 py-1 text-caption text-muted-foreground
                        transition-colors hover:bg-accent hover:text-foreground active:scale-[0.98]"

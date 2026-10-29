@@ -55,6 +55,11 @@ export type WallMatchContext = {
   running: { has(slug: string): boolean };
   /** The 标签 chips that still name something on the wall. */
   activeTags: readonly string[];
+  /** `metaBySlug` feeds the two facet selects; missing metadata never matches a facet. */
+  metaBySlug?: Record<string, RepoMeta | undefined>;
+  /** Empty string means "all"; values come from `RepoMeta`. */
+  language?: string;
+  category?: string;
 };
 
 /**
@@ -75,6 +80,9 @@ export function matchWallCard(card: WallCard, ctx: WallMatchContext): boolean {
     if (!hay.includes(q)) return false;
   }
   if (!matchesTagFilter(state?.tags, ctx.activeTags)) return false;
+  const meta = ctx.metaBySlug?.[card.slug];
+  if (ctx.language && meta?.language !== ctx.language) return false;
+  if (ctx.category && meta?.category !== ctx.category) return false;
   const used = ctx.usage[`repo:${card.slug}`];
   if (ctx.filter === "opened") return !!used;
   if (ctx.filter === "unopened") return !used;

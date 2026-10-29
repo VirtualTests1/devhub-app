@@ -2148,6 +2148,8 @@ const ZH = {
   "repoStorage.hint": "缓存已包含在仓库目录内；Python 环境与工作树副本在仓库外。这里只统计，不删除文件。",
   "settings.search.kw.about": "关于,更新,版本,release",
   "app.credentialsScrubbed": "已从 {n} 个仓库的 git 配置中移除旧的 GitHub 令牌",
+"queue.recoveredQueuedLog": "上次退出时在排队，已恢复为暂停；点继续排队开始",
+"queue.recoveredFailedLog": "上次会话的失败任务，可直接重试或移除",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4087,6 +4089,8 @@ const EN_VALUES = [
   "The cache is already included in the repository directory; the Python environment and worktree copies live outside it. This panel measures only; it never deletes.",
   "about,update,version,release",
   "Removed an old GitHub token from {n} repositories' git config",
+  "Queued when the app last closed; restored paused — press Resume to start",
+  "Failed in a previous session; retry or remove it directly",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

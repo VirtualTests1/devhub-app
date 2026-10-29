@@ -1,16 +1,27 @@
 /**
- * Interrupted-download recovery (r26-N1-1).
+ * Queue recovery across restarts (r26-N1-1, r30-O1).
  *
- * The queue is process memory. Closing the app with a clone in flight used to
- * erase every trace of it: no row, no reason, no URL to retry. This module
- * persists only the tasks that had NOT finished, and reads them back as
- * **failed** rows — never as queued ones. Restarting a clone the user did not ask
- * to restart is a different feature (and a surprising one); showing "this was
- * interrupted, retry?" is the honest half.
+ * The queue is process memory. Closing the app used to erase every trace of it:
+ * no row, no reason, no URL to retry. The first version persisted only queued
+ * and running tasks and replayed both as **failed** rows — safe, because it
+ * never restarted a clone nobody asked for, but wrong in two visible ways:
  *
- * What is deliberately not stored: log lines, stage list, progress, outcome.
- * They are session evidence, not recovery data, and a 20-row payload with full
- * logs would compete for the same localStorage quota the wall uses.
+ *   - a task that was merely *queued* had done no work, so calling it
+ *     "interrupted" was a lie and discarded the user's place in line;
+ *   - a failure vanished on quit, so the most useful row to retry was exactly
+ *     the one restart could not show.
+ *
+ * Version 2 keeps the same safety rule — nothing starts by itself — while
+ * stating each row's real history: `queued` comes back **paused**, `running`
+ * comes back as interrupted/failed, and `failed` comes back with its reason so
+ * the existing 重试失败 path can pick it up. A resumed queued row is an explicit
+ * click, never an automatic clone.
+ *
+ * What is still deliberately not stored: log lines, stage list, progress and
+ * outcome. They are session evidence, not recovery data, and a 20-row payload
+ * with full logs would compete for the same localStorage quota the wall uses.
+ * The failure text is kept because it is the one field that tells the user
+ * whether retrying is worthwhile, and it is capped.
  *
  * No React, no store import at runtime: the store passes its tasks in, tests
  * drive the same functions with a fake storage.
@@ -18,6 +29,11 @@
 
 export const DOWNLOAD_RECOVERY_KEY = "devhub.downloads.interrupted.v1";
 export const DOWNLOAD_RECOVERY_CAP = 20;
+
+/** How long a stored failure reason may be; the backend's own message, trimmed. */
+export const RECOVERY_FAILURE_MAX = 500;
+
+export type RecoveryStatus = "queued" | "running" | "failed";
 
 export type RecoverableTask = {
   id: string;
@@ -29,6 +45,15 @@ export type RecoverableTask = {
   branch?: string;
   /** Wall-clock start; kept so the recovered row can say when it began. */
   startedAt: number;
+  /**
+   * What the row was doing at quit. Absent in v1 payloads, where every row was
+   * in flight by definition; the reader treats that as `running`.
+   */
+  status?: RecoveryStatus;
+  /** v2: the failure text for a failed row, so 重试失败 is not a blind click. */
+  failure?: string;
+  /** v2: when the row settled, for a failed row. */
+  endedAt?: number;
 };
 
 export type RecoveryStore = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -52,27 +77,46 @@ export type RecoverySourceTask = {
   branch?: string;
   startedAt: number;
   status: "queued" | "running" | "done" | "failed" | "cancelled";
-  /** A user-held row never reached the backend, so it is not "interrupted". */
+  /** A user-held row never reached the backend; v2 restores it held. */
   paused?: boolean;
+  failure?: string | null;
+  endedAt?: number;
 };
 
+/** Keep a recovery payload's failure text bounded without cutting a code point. */
+function boundedFailure(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const text = raw.trim();
+  if (!text) return undefined;
+  if (text.length <= RECOVERY_FAILURE_MAX) return text;
+  return `${text.slice(0, RECOVERY_FAILURE_MAX - 1)}…`;
+}
+
 /**
- * Tasks still in flight at quit, newest first, capped.
+ * Tasks a restart can honestly present, newest first, capped.
  *
- * `queued` counts: a user who pressed download and quit immediately should see
- * that the request existed. `done`/`failed` are history and are not persisted.
- * A *paused* queued row is the exception: the user deliberately held it before
- * any clone started, so there is no partial work to explain and resurrecting it
- * as "interrupted" would contradict the hold.
+ * `queued` counts even when the user had held it (`paused`): the row existed,
+ * and v2 restores it held rather than pretending it failed. `running` is the
+ * only state that has partial work and therefore the only one that becomes
+ * "interrupted". `failed` is included so the retry path survives a restart;
+ * `done`/`cancelled` are history, not recovery.
+ *
+ * Duplicate refs are resolved in favour of the row that still had work to do.
+ * The queue already refuses a second active download of one ref, but a failed
+ * row plus a fresh queued row is a legal state — and dropping the queued one
+ * because the failed one happens to be newer would lose the user's current
+ * request.
  */
 export function captureRecovered(tasks: readonly RecoverySourceTask[]): RecoverableTask[] {
   const out: RecoverableTask[] = [];
+  const rank = new Map<string, number>();
+  const order: { task: RecoverableTask; priority: number }[] = [];
   for (const task of tasks) {
-    if (task.status !== "queued" && task.status !== "running") continue;
-    if (task.paused) continue;
+    if (task.status !== "queued" && task.status !== "running" && task.status !== "failed") continue;
     const ref = task.ref.trim();
     if (!ref) continue;
-    out.push({
+    const priority = task.status === "failed" ? 0 : 1;
+    const row: RecoverableTask = {
       id: task.id,
       ref,
       source: task.source,
@@ -80,7 +124,28 @@ export function captureRecovered(tasks: readonly RecoverySourceTask[]): Recovera
       ...(task.overwrite ? { overwrite: true } : {}),
       ...(task.branch?.trim() ? { branch: task.branch.trim() } : {}),
       startedAt: task.startedAt,
-    });
+      status: task.status,
+      ...(task.status === "failed" && boundedFailure(task.failure)
+        ? { failure: boundedFailure(task.failure) }
+        : {}),
+      ...(task.status === "failed" && typeof task.endedAt === "number" && Number.isFinite(task.endedAt)
+        ? { endedAt: task.endedAt }
+        : {}),
+    };
+    const current = rank.get(ref);
+    if (current === undefined) {
+      rank.set(ref, order.length);
+      order.push({ task: row, priority });
+    } else {
+      const prior = order[current];
+      if (prior && priority > prior.priority) {
+        // Keep the row's original position but prefer the active copy.
+        order[current] = { task: row, priority };
+      }
+    }
+  }
+  for (const { task } of order) {
+    out.push(task);
     if (out.length >= DOWNLOAD_RECOVERY_CAP) break;
   }
   return out;
@@ -107,6 +172,13 @@ export function parseRecovered(raw: string | null): RecoverableTask[] {
     if (typeof r.startedAt !== "number" || !Number.isFinite(r.startedAt)) continue;
     const ref = r.ref.trim();
     if (seen.has(ref)) continue;
+    // v1 had no status field and only ever stored in-flight rows, so the honest
+    // default for an old payload is "running" (which the store shows as
+    // interrupted). A v2 row is only trusted when the value is a known state.
+    const status: RecoveryStatus =
+      r.status === "queued" || r.status === "failed" || r.status === "running"
+        ? r.status
+        : "running";
     seen.add(ref);
     out.push({
       id: typeof r.id === "string" && r.id ? r.id : `recovered-${out.length}`,
@@ -118,6 +190,13 @@ export function parseRecovered(raw: string | null): RecoverableTask[] {
       ...(r.overwrite === true ? { overwrite: true } : {}),
       ...(typeof r.branch === "string" && r.branch.trim() ? { branch: r.branch.trim() } : {}),
       startedAt: r.startedAt,
+      status,
+      ...(status === "failed" && boundedFailure(r.failure)
+        ? { failure: boundedFailure(r.failure) }
+        : {}),
+      ...(status === "failed" && typeof r.endedAt === "number" && Number.isFinite(r.endedAt)
+        ? { endedAt: r.endedAt }
+        : {}),
     });
     if (out.length >= DOWNLOAD_RECOVERY_CAP) break;
   }
@@ -134,7 +213,7 @@ export function readRecovered(storage?: RecoveryStore): RecoverableTask[] {
   }
 }
 
-/** Write the current in-flight set; an empty set removes the key. */
+/** Write the current recoverable set; an empty set removes the key. */
 export function writeRecovered(tasks: readonly RecoverableTask[], storage?: RecoveryStore): void {
   const s = resolveStorage(storage);
   if (!s) return;
@@ -145,7 +224,7 @@ export function writeRecovered(tasks: readonly RecoverableTask[], storage?: Reco
     }
     s.setItem(
       DOWNLOAD_RECOVERY_KEY,
-      JSON.stringify({ version: 1, tasks: tasks.slice(0, DOWNLOAD_RECOVERY_CAP) }),
+      JSON.stringify({ version: 2, savedAt: Date.now(), tasks: tasks.slice(0, DOWNLOAD_RECOVERY_CAP) }),
     );
   } catch {
     /* quota/private mode: recovery silently unavailable, downloads unaffected */

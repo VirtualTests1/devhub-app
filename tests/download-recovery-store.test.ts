@@ -10,10 +10,18 @@ const MAIN_HOOKS = ["beforeunload", "pagehide"];
 
 test("接线: 初始化用 recoveredTasks()，并从 takeRecovered() 读一次", () => {
   assert.match(STORE, /import \{[\s\S]*?takeRecovered[\s\S]*?\} from "\.\.\/lib\/download-recovery"/);
-  assert.match(STORE, /function recoveredTasks\(\): DownloadTask\[\] \{[\s\S]*?takeRecovered\(\)/);
+  assert.match(STORE, /export function recoveredTasks\(\): DownloadTask\[\] \{[\s\S]*?takeRecovered\(\)/);
   assert.match(STORE, /tasks: recoveredTasks\(\)/);
-  assert.match(STORE, /status: "failed" as const/);
-  assert.match(STORE, /interrupted: true/);
+  assert.match(STORE, /status: queued \? \("queued" as const\) : \("failed" as const\)/);
+  assert.match(STORE, /interrupted: !queued && !failed/);
+});
+
+test("接线: 排队行恢复为暂停，失败行保留原因（r30-O1）", () => {
+  assert.match(STORE, /const queued = row\.status === "queued"/);
+  assert.match(STORE, /paused: queued \|\| undefined/);
+  assert.match(STORE, /t\("queue\.recoveredQueuedLog"\)/);
+  assert.match(STORE, /t\("queue\.recoveredFailedLog"\)/);
+  assert.match(STORE, /failure: queued \? null : \(failed \? \(row\.failure \?\?/);
 });
 
 test("接线: add/finish/dismiss/clearFinished 都持久化；退出时再 flush", () => {

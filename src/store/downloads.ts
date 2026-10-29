@@ -320,26 +320,45 @@ export function capReady(): Promise<void> {
   });
 }
 
-/** Rows from a previous run, shown as failed so the retry path is the normal one. */
-function recoveredTasks(): DownloadTask[] {
-  return takeRecovered().map((row, i) => ({
-    id: `recovered-${row.id}-${i}`,
-    ref: row.ref,
-    source: row.source,
-    targetDir: row.targetDir,
-    overwrite: row.overwrite,
-    branch: row.branch,
-    startedAt: row.startedAt,
-    endedAt: row.startedAt,
-    log: [t("queue.interruptedLog")],
-    stages: [],
-    progress: null,
-    outcome: null,
-    failure: t("queue.interrupted"),
-    status: "failed" as const,
-    lastLine: "",
-    interrupted: true,
-  }));
+/**
+ * Rows from a previous run, each with its real history (r30-O1).
+ *
+ * A `queued` row comes back **paused**, so restarting the app never starts a
+ * clone by itself; the header counts it under 已暂停 and 继续排队 is the one
+ * action that starts it. A `running` row has partial work on disk and is shown
+ * as interrupted/failed. A `failed` row keeps its reason and reuses the normal
+ * 重试失败 path.
+ */
+export function recoveredTasks(): DownloadTask[] {
+  return takeRecovered().map((row, i) => {
+    const queued = row.status === "queued";
+    const failed = row.status === "failed";
+    return {
+      id: `recovered-${row.id}-${i}`,
+      ref: row.ref,
+      source: row.source,
+      targetDir: row.targetDir,
+      overwrite: row.overwrite,
+      branch: row.branch,
+      startedAt: row.startedAt,
+      endedAt: queued ? undefined : (row.endedAt ?? row.startedAt),
+      log: [
+        queued
+          ? t("queue.recoveredQueuedLog")
+          : failed
+            ? t("queue.recoveredFailedLog")
+            : t("queue.interruptedLog"),
+      ],
+      stages: [],
+      progress: null,
+      outcome: null,
+      failure: queued ? null : (failed ? (row.failure ?? t("queue.interrupted")) : t("queue.interrupted")),
+      status: queued ? ("queued" as const) : ("failed" as const),
+      paused: queued || undefined,
+      interrupted: !queued && !failed,
+      lastLine: "",
+    };
+  });
 }
 
 /** Capture the in-flight set after every mutation that can change it. */

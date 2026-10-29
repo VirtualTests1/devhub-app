@@ -272,11 +272,15 @@ info.push(
 // 2026-10-28 (r28): the About/update-check page, storage panel, wall facets and
 // external-link wrapper add 8,470 B JS, 40 B CSS and 6,481 B to the largest
 // chunk (SettingsView now carries AboutSection). Intended feature weight.
-const JS_TOTAL_MAX_BYTES = 1_104_451; // measured 1,103,427 B + 1 KB cross-machine headroom
-const CSS_TOTAL_MAX_BYTES = 80_064; // measured 79,080 B on 2026-10-28 (r28)
-const SINGLE_CHUNK_MAX_BYTES = 248_142; // measured max 247,118 B (ui-shared) on 2026-10-28 + 1 KB headroom
-const JS_CSS_TOTAL_MAX_BYTES = 1_183_531; // measured 1,182,507 B + 1 KB cross-machine headroom
-const INITIAL_JS_MAX_BYTES = 723_073; // measured 722,049 B + 1 KB cross-machine headroom
+// 2026-10-29 (r30): saved wall views, note-in-search, download diagnostics,
+// update-check cache UI, wall snapshots, LFS/submodule warnings and crash reports
+// add their strings and panels. Measured 1,137,987 / 79,417 / 255,920 / 1,217,404 /
+// 742,887 B; each constant is the measurement + 1 KB cross-machine headroom.
+const JS_TOTAL_MAX_BYTES = 1_139_011; // measured 1,137,987 B + 1 KB cross-machine headroom
+const CSS_TOTAL_MAX_BYTES = 80_441; // measured 79,417 B on 2026-10-29 (r30) + 1 KB headroom
+const SINGLE_CHUNK_MAX_BYTES = 256_944; // measured max 255,920 B (ui-shared) on 2026-10-29 + 1 KB headroom
+const JS_CSS_TOTAL_MAX_BYTES = 1_218_428; // measured 1,217,404 B + 1 KB cross-machine headroom
+const INITIAL_JS_MAX_BYTES = 743_911; // measured 742,887 B + 1 KB cross-machine headroom
 
 // A chunk is a "single chunk" for the per-file ceiling only if it is actually
 // loaded as one unit; sourcemaps are not, so they are excluded above.

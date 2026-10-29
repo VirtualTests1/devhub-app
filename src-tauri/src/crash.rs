@@ -137,8 +137,9 @@ pub fn install(path: PathBuf) {
             let backtrace = std::backtrace::Backtrace::force_capture().to_string();
             let report = report_of(message, location, thread, Some(backtrace));
             // Never let a failed report panic out of the hook: that would abort
-            // inside an abort. Every operation below is best-effort.
-            let _ = write_report(&path, &report);
+            // inside an abort. There is no safe reporting channel left while the
+            // process is terminating, so a failed write is deliberately dropped.
+            write_report(&path, &report).ok();
             previous(info);
         }));
     });

@@ -83,11 +83,12 @@ test("主题命令由 resolveTheme 推导，不再拿 ThemeId 直接比 light", 
 test("palette 开着时命令不发霉：appearance 进了 memo 依赖，且是窄订阅", () => {
   // r16-n2-2 added `t` (the locale-memoised translator) to the same deps for
   // the same reason as `theme`: the 去… / 设置 page labels are built inside
-  // this memo, so a language switch has to rebuild it. The assertion still
-  // pins the full list — theme included, in order — not a subset of it.
+  // this memo, so a language switch has to rebuild it. r30-N1 adds `savedViews`
+  // because the 应用视图 commands are built from that list. The assertion pins
+  // the full list — theme included, in order — not a subset of it.
   assert.match(
     code,
-    /\}, \[repos, records, onRefresh, onClose, ui, theme, t\]\);/,
+    /\}, \[repos, records, onRefresh, onClose, ui, theme, t, savedViews\]\);/,
     "the commands memo rebuilds when the stored preference moves",
   );
   assert.match(

@@ -244,6 +244,7 @@ export const ELEMENTS: ElementDef[] = [
   { id: "repo-tile-tags", label: "卡片：标签行", group: "项目页", hint: "卡片底部的用户标签徽标。" },
   { id: "projects-tag-chips", label: "项目页：标签筛选行", group: "项目页", hint: "按标签收窄项目墙的一排 chip，只在墙上至少有一个标签时出现。" },
   { id: "repo-tags-dialog", label: "标签编辑弹层", group: "项目页", hint: "卡片菜单「标签…」打开的那一面。" },
+  { id: "wall-view-dialog", label: "项目墙视图命名弹层", group: "项目页", hint: "保存或重命名项目墙视图时打开的那一面。" },
   { id: "grep-dialog", label: "在项目中搜索弹层", group: "项目页", hint: "卡片菜单「在项目中搜索…」打开的那一面。" },
 
   // --- 添加页 -------------------------------------------------------------

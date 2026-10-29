@@ -138,7 +138,12 @@ test("bundle diet 3: src/lib/i18n.ts 体积棘轮（抬高上限必须在提交�
   // (N2), taskbar attention (N3), and the credential-scrub notice (O1). Measured
   // 216,867 B. The cap still sits below the 199.7 KB object-EN regression plus
   // this round's growth (~222 KB), so the structural guard is intact.
-  const I18N_MAX_BYTES = 220_000;
+  // 220_000 → 232_000 on 2026-10-29 (r30): saved wall views, note search evidence,
+  // download diagnostics/remedies, update cache wording, wall snapshot/restore,
+  // LFS/submodule warnings and crash reports add 100 paired keys (measured
+  // 229,032 B). All are literal call sites; bundle diet 1 still proves the key
+  // table did not grow a second copy.
+  const I18N_MAX_BYTES = 232_000;
   const size = RAW_BYTES;
   assert.ok(
     size <= I18N_MAX_BYTES,

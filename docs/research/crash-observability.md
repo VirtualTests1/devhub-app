@@ -43,7 +43,7 @@ rustc -C panic=abort -O -o <tmp>/panic.exe <tmp>/panic.rs   # exit 0
 <tmp>/panic.exe                                             # Git Bash reported 127
 ```
 
-结果：hook 文件被写出，内容为 `hooked: panicked at <tmp>/panic.rs:10:5: r30 probe`；
+结果：hook 文件被写出，内容为 `hooked: panicked at <tmp>/panic.rs (line 10): r30 probe`；
 stdout/stderr 为空。结论：**abort 策略下 hook 在终止前运行**，因此本地写报告可行。
 （Git Bash 的 127 是本次观察到的退出码，不作为 Windows 进程退出语义的结论。）
 

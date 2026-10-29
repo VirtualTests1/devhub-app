@@ -7,7 +7,8 @@
  *   1. `isPausable` 只认 `queued`，`running`/`done`/`failed` 都不行；
  *   2. `startableTasks` 是调度器的纯选择函数：跳过暂停行、遵守剩余槽位、仍按
  *      「等得最久优先」的服务顺序取人；
- *   3. 暂停行不进入重启恢复——它从未开始，也就没有「上次没下完」可解释。
+ *   3. 暂停行会进入重启恢复，但恢复后仍是暂停——它从未开始，不能自动开跑，
+ *      也不能被说成「上次没下完」；r30-O1 把这条从「跳过」改为「恢复为暂停」。
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -124,14 +125,18 @@ test("pause/resume: 只改暂停位；running 行暂停是 no-op", () => {
   assert.equal(useDownloads.getState().tasks.length, 2, "an unknown id is ignored");
 });
 
-test("恢复快照跳过暂停行：从未开始就没有「上次没下完」", () => {
+test("恢复快照保留暂停行，但状态仍是 queued（不会自动开跑）", () => {
   const rows = [
-    task({ id: "paused", paused: true }),
-    task({ id: "queued" }),
-    task({ id: "running", status: "running" }),
+    task({ id: "paused", ref: "a/p", paused: true }),
+    task({ id: "queued", ref: "b/q" }),
+    task({ id: "running", ref: "c/r", status: "running" }),
   ];
   assert.deepEqual(
-    captureRecovered(rows).map((r) => r.id),
-    ["queued", "running"],
+    captureRecovered(rows).map((r) => [r.id, r.status]),
+    [
+      ["paused", "queued"],
+      ["queued", "queued"],
+      ["running", "running"],
+    ],
   );
 });

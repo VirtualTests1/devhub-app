@@ -100,8 +100,9 @@ test("palette-local-search: 行内渲染字段标签 + snippet，标识走 data 
   assert.match(code, /\{c\.evidence\.snippet \? ` · \$\{c\.evidence\.snippet\}` : ""\}/);
 });
 
-test("palette-local-search: 命令 memo 的依赖不变（主题/语言新鲜度由既有测试钉住）", () => {
+test("palette-local-search: 命令 memo 的依赖不变（主题/语言/视图新鲜度由既有测试钉住）", () => {
   // The theme test pins this exact dep list; the local-index wiring lives in
   // the *ranked* memo instead, deliberately — commands do not read the corpus.
-  assert.match(code, /\}, \[repos, records, onRefresh, onClose, ui, theme, t\]\);/);
+  // r30-N1 adds `savedViews`: the 应用视图 commands are built inside this memo.
+  assert.match(code, /\}, \[repos, records, onRefresh, onClose, ui, theme, t, savedViews\]\);/);
 });

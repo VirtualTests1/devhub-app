@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Check, LoaderCircle, SquareCheckBig, X } from "lucide-react";
 import { cn } from "../lib/utils";
 import { mapBounded } from "../lib/bounded-map";
@@ -35,7 +35,14 @@ import { toast } from "./Toast";
  */
 
 /** One selected repository's answer, kept in selection order. */
-export type BatchOutcome = { slug: string; name: string; ok: boolean; detail: string | null };
+export type BatchOutcome = {
+  slug: string;
+  name: string;
+  ok: boolean;
+  detail: string | null;
+  /** The user stopped the batch before this item was started (r31-O3). */
+  skipped?: boolean;
+};
 
 /**
  * What one repository's step reports. `detail` is printed either way — on success
@@ -84,9 +91,13 @@ export function summarize(outcomes: BatchOutcome[]): {
   total: number;
   ok: number;
   failed: BatchOutcome[];
+  skipped: BatchOutcome[];
 } {
-  const failed = outcomes.filter((o) => !o.ok);
-  return { total: outcomes.length, ok: outcomes.length - failed.length, failed };
+  // "Not run" is not "failed": the user stopped the batch, and counting those
+  // rows as errors would make a deliberate stop look like a broken network.
+  const failed = outcomes.filter((o) => !o.ok && !o.skipped);
+  const skipped = outcomes.filter((o) => o.skipped);
+  return { total: outcomes.length, ok: outcomes.length - failed.length - skipped.length, failed, skipped };
 }
 
 export function BatchBar({
@@ -110,7 +121,7 @@ export function BatchBar({
   /** Lets the view drop repositories the action just removed. */
   onAfterRun: (actionId: string, okSlugs: string[]) => void;
   /** The whole batch is done: how many succeeded, for a one-shot attention cue. */
-  onSettled?: (actionId: string, ok: number, total: number) => void;
+  onSettled?: (actionId: string, ok: number, total: number, skipped: number) => void;
   /**
    * The running verb's label, or null when the bar goes idle. The view needs this
    * because a live 批量更新 holds a repository's own directory, and the card menu
@@ -127,6 +138,9 @@ export function BatchBar({
   // clearing `outcomes` on the click would take away on the very next paint.
   const [showResults, setShowResults] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  /** Set by 停止后续; checked before each new item, never mid-item. */
+  const cancelRef = useRef(false);
   // Two layers, one exit each: leaving 多选 and dismissing the result list are
   // different moments, and neither should blink out mid-animation for the other.
   const layer = useLayerExit(active);
@@ -139,14 +153,17 @@ export function BatchBar({
     if (!items.length) return;
     if (action.confirm && !(await action.confirm(items.map((i) => i.name)))) return;
     setRunningId(action.id);
+    setCancelling(false);
+    cancelRef.current = false;
     onRunningChange?.(action.label);
     let settled: BatchOutcome[];
     try {
       // Bounded, not `Promise.all`: an action that says how wide it may run gets
       // that width, and one that does not keeps the old fan-out. Result order is
       // selection order either way, which is what the list below depends on to
-      // name the right repository.
-      settled = await mapBounded(
+      // name the right repository. `cancelRef` only stops items that have not
+      // started; an in-flight git pull is allowed to finish.
+      const raw = await mapBounded(
         items,
         action.concurrency ?? items.length,
         async (item): Promise<BatchOutcome> => {
@@ -160,9 +177,23 @@ export function BatchBar({
             return { slug: item.slug, name: item.name, ok: false, detail: messageOf(err) };
           }
         },
+        { shouldStop: () => cancelRef.current },
       );
+      settled = items.map((item, i) => {
+        const row = raw[i];
+        return (
+          row ?? {
+            slug: item.slug,
+            name: item.name,
+            ok: false,
+            skipped: true,
+            detail: t("batch.skippedDetail"),
+          }
+        );
+      });
     } finally {
       setRunningId(null);
+      setCancelling(false);
       onRunningChange?.(null);
     }
     setOutcomes(settled);
@@ -172,9 +203,10 @@ export function BatchBar({
       settled.filter((o) => o.ok).map((o) => o.slug),
     );
     const sum = summarize(settled);
-    onSettled?.(action.id, sum.ok, sum.total);
+    onSettled?.(action.id, sum.ok, sum.total, sum.skipped.length);
     const text = t("batch.rowOk", { action: action.label, ok: sum.ok, total: sum.total });
     if (sum.failed.length) toast.error(t("batch.rowFailTail", { text, n: sum.failed.length }));
+    else if (sum.skipped.length) toast.info(t("batch.rowSkippedTail", { text, n: sum.skipped.length }));
     else toast.success(text);
   };
 
@@ -195,6 +227,11 @@ export function BatchBar({
             {sum.failed.length > 0 && (
               <span className="text-caption text-danger">{t("batch.failedCount", { n: sum.failed.length })}</span>
             )}
+            {sum.skipped.length > 0 && (
+              <span className="text-caption text-muted-foreground">
+                {t("batch.skippedCount", { n: sum.skipped.length })}
+              </span>
+            )}
             <button
               type="button"
               onClick={() => setShowResults(false)}
@@ -207,13 +244,17 @@ export function BatchBar({
           <ul className="max-h-[28vh] space-y-0.5 overflow-y-auto" role="log" aria-live="polite">
             {outcomes.map((o) => (
               <li key={o.slug} className="flex items-start gap-2 px-1 text-caption">
-                {o.ok ? (
+                {o.skipped ? (
+                  <X className="mt-0.5 h-3 w-3 shrink-0 text-muted-foreground" />
+                ) : o.ok ? (
                   <Check className="mt-0.5 h-3 w-3 shrink-0 text-success" />
                 ) : (
                   <X className="mt-0.5 h-3 w-3 shrink-0 text-danger" />
                 )}
                 <span className="min-w-0 flex-1">
-                  <span className={cn("truncate font-medium", !o.ok && "text-danger")}>{o.name}</span>
+                  <span className={cn("truncate font-medium", !o.ok && !o.skipped && "text-danger", o.skipped && "text-muted-foreground")}>
+                    {o.name}
+                  </span>
                   {o.detail && (
                     <span className="app-desc block break-words text-muted-foreground">{o.detail}</span>
                   )}
@@ -277,6 +318,21 @@ export function BatchBar({
               </button>
             );
           })}
+
+          {runningId && (
+            <button
+              type="button"
+              onClick={() => {
+                cancelRef.current = true;
+                setCancelling(true);
+              }}
+              disabled={cancelling}
+              aria-label={t("batch.stopQueuedAria")}
+              className="skin-ctl flex items-center gap-1.5 border border-warning/40 px-2.5 py-1 text-caption text-warning transition-colors hover:bg-warning/10 disabled:opacity-50"
+            >
+              {cancelling ? t("batch.stoppingQueued") : t("batch.stopQueued")}
+            </button>
+          )}
 
           <span aria-hidden className="h-4 w-px shrink-0 bg-border" />
 

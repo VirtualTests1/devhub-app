@@ -2017,10 +2017,12 @@ export function ProjectsView({
         onSelectAll={() => useSelection.getState().selectAll(order)}
         onClear={() => useSelection.getState().clear()}
         onAfterRun={onBatchDone}
-        onSettled={(id, ok, total) => {
+        onSettled={(id, ok, total, skipped) => {
           // Only the network verb is worth a taskbar flash; local stop/clear/
           // tag batches finish in under a second and the user is usually looking.
-          if (id === "update") {
+          // A deliberate 停止后续 is neither success nor failure, so it does not
+          // request the failure flash either.
+          if (id === "update" && skipped === 0) {
             void requestCompletionAttention(ok === total ? "success" : "failure");
           }
         }}

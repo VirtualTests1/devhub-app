@@ -29,12 +29,24 @@
  * Workers are started as slots free, so a slow item never blocks the ones behind
  * it that were going to start anyway.
  */
+export function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]>;
+export function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+  opts: { shouldStop?: () => boolean },
+): Promise<(R | undefined)[]>;
 export async function mapBounded<T, R>(
   items: readonly T[],
   limit: number,
   worker: (item: T, index: number) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+  opts: { shouldStop?: () => boolean } = {},
+): Promise<(R | undefined)[]> {
+  const results: (R | undefined)[] = new Array(items.length);
   if (!items.length) return results;
   // Clamp: 0, negative, NaN and "larger than the list" all mean "as much of the
   // list as there is", never "run nothing" and never "run unbounded".
@@ -45,11 +57,16 @@ export async function mapBounded<T, R>(
     runners.push(
       (async () => {
         while (true) {
+          // A stop request never interrupts a worker already in flight; it only
+          // prevents the next one from starting. The caller owns the honest
+          // "these were not run" result rows.
+          if (opts.shouldStop?.()) return;
           const i = next;
           next += 1;
           if (i >= items.length) return;
           const item = items[i];
           if (item === undefined) return;
+          if (opts.shouldStop?.()) return;
           results[i] = await worker(item, i);
         }
       })(),

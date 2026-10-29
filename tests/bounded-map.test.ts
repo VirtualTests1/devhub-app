@@ -108,3 +108,23 @@ test("mapBounded: a rejected worker rejects the call, like Promise.all", async (
   }
   assert.match(message, /boom/);
 });
+
+test("mapBounded: shouldStop prevents later items without interrupting the one in flight", async () => {
+  let stop = false;
+  const started: number[] = [];
+  const out = await mapBounded(
+    [1, 2, 3, 4],
+    1,
+    async (n) => {
+      started.push(n);
+      stop = true; // the first item asks to stop after it finishes
+      return n * 10;
+    },
+    { shouldStop: () => stop },
+  );
+  assert.deepEqual(started, [1], "only the item already in flight ran");
+  assert.equal(out[0], 10);
+  assert.equal(out[1], undefined);
+  assert.equal(out[3], undefined);
+  assert.equal(out.length, 4, "the caller still gets one slot per selected item");
+});

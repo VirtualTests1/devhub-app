@@ -2255,6 +2255,12 @@ const ZH = {
   "queue.preflightFree": "可用 {size}",
   "queue.preflightFreeUnknown": "可用空间未知",
   "queue.preflightFailed": "预检未通过：{ref}（详情见任务）",
+  "batch.stopQueued": "停止后续",
+  "batch.stoppingQueued": "正在停止后续…",
+  "batch.stopQueuedAria": "停止启动后续项目；正在运行的项目会做完",
+  "batch.skippedDetail": "已停止，未执行",
+  "batch.skippedCount": "未执行 {n}",
+  "batch.rowSkippedTail": "{text}，{n} 个未执行（已停止）",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;
@@ -4301,6 +4307,12 @@ const EN_VALUES = [
   "{size} free",
   "Free space unknown",
   "Preflight failed for {ref}; see the task for the reason",
+  "Stop remaining",
+  "Stopping remaining…",
+  "Stop starting further items; the ones already running will finish",
+  "Stopped; not started",
+  "Not run: {n}",
+  "{text}; {n} not run (stopped)",
 ] as const;
 
 const EN: Readonly<Record<string, string>> = Object.fromEntries(

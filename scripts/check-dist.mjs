@@ -269,11 +269,14 @@ info.push(
 // N3 taskbar attention, and the O1 credential-scrub notice. Rust-only work
 // (O1/O2 auth/cancel, R1/R2/R3) does not enter dist. Measured JS +13,051 B,
 // CSS +68 B, largest chunk +4,552 B, initial JS +6,380 B; all under 2%.
-const JS_TOTAL_MAX_BYTES = 1_096_000; // measured 1,094,957 B + 1 KB cross-machine headroom
-const CSS_TOTAL_MAX_BYTES = 80_064; // measured 79,040 B on 2026-10-28 + 1 KB headroom
-const SINGLE_CHUNK_MAX_BYTES = 241_661; // measured max 240,637 B (ui-shared) on 2026-10-28 + 1 KB headroom
-const JS_CSS_TOTAL_MAX_BYTES = 1_175_000; // measured 1,173,997 B + 1 KB cross-machine headroom
-const INITIAL_JS_MAX_BYTES = 718_742; // measured 717,718 B + 1 KB cross-machine headroom
+// 2026-10-28 (r28): the About/update-check page, storage panel, wall facets and
+// external-link wrapper add 8,470 B JS, 40 B CSS and 6,481 B to the largest
+// chunk (SettingsView now carries AboutSection). Intended feature weight.
+const JS_TOTAL_MAX_BYTES = 1_104_451; // measured 1,103,427 B + 1 KB cross-machine headroom
+const CSS_TOTAL_MAX_BYTES = 80_064; // measured 79,080 B on 2026-10-28 (r28)
+const SINGLE_CHUNK_MAX_BYTES = 248_142; // measured max 247,118 B (ui-shared) on 2026-10-28 + 1 KB headroom
+const JS_CSS_TOTAL_MAX_BYTES = 1_183_531; // measured 1,182,507 B + 1 KB cross-machine headroom
+const INITIAL_JS_MAX_BYTES = 723_073; // measured 722,049 B + 1 KB cross-machine headroom
 
 // A chunk is a "single chunk" for the per-file ceiling only if it is actually
 // loaded as one unit; sourcemaps are not, so they are excluded above.

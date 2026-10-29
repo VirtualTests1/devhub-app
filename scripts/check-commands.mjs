@@ -175,7 +175,6 @@ const RUST_ONLY_COMMANDS = {
   // runGrep 调用）就是那个 UI，调用者真实存在，所以这条 cover 已删除——留着
   // 会触发下面的 stale 检查（豁免不再需要就是伪装）。
   // Round 19 R1: Tantivy 本地索引调研骨架——命令已注册，实际索引/查询逻辑后续接入。
-  tantivy_status: "R19-R1: 调研占位命令，核心逻辑接入后前端调用",
   // Round 19 N3's Deep Link entry (`register_deeplink: … 设置页 deep link 注册按钮待实现`)
   // is gone as of r21 N3-1: the button shipped, so the command has a caller
   // (`src/lib/deeplink-register.ts` → `invoke("register_deeplink")`) and keeping a

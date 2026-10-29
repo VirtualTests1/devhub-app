@@ -52,7 +52,6 @@ pub use headless::*;
 // r21-o1-3: same contract for the `--cover-check` probe, now living in covers.rs.
 pub use covers::run_headless_cover_check;
 mod stars;
-mod tantivy_idx;
 
 use downloader::{
     discover_local_proxy, find_git, resolve_agreed_ip, DownloadOutcome, Downloader,
@@ -4502,8 +4501,6 @@ pub fn run() {
     let app = match tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        // R2: 自动更新——当前 bundle.updater.active=false，plugin 静默存在。
-        .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             // A second launch must not start a second window: both would share
             // 项目/ and race on .devhub.json + the activity log. Instead pull
@@ -4591,7 +4588,6 @@ pub fn run() {
             searchgrep::repo_grep,
             files::repo_files,
             deps::check_dependencies,
-            tantivy_idx::tantivy_status,
             docker::docker_status,
             docker::project_has_compose,
             deeplink::register_deeplink,

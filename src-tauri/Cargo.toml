@@ -36,19 +36,12 @@ tauri-plugin-dialog = "2"
 # Guarantees only one DevHub instance runs at a time. Two instances sharing the
 # same 项目/ directory would race on .devhub.json and the activity log.
 tauri-plugin-single-instance = "2"
-# R2: 应用自动更新——从 GitHub Releases 或自建服务器轮询版本、下载、替换。
-# 当前只接 plugin 骨架和配置：没有发布端（updater endpoint），实际更新流程跑不起来，
-# 但 check_update 命令会返回「未配置 endpoint」而不是 panic。
-tauri-plugin-updater = "2"
 # Decodes native tool output that is not UTF-8. Windows formats its message
 # strings in the OEM codepage (936/GBK on a zh-CN install), so `curl`'s error
 # text arrived as replacement characters. Pure Rust, and the alternative was
 # writing a codepage table by hand.
 encoding_rs = "0.8"
 trash = "5.2.9"
-# R1: 本地全文索引——Tantivy v0.22。调研通过：Rust 原生、支持模糊搜索/聚合/排序。
-# 当前只接 Cargo 依赖和占位命令 tantivy_status()，核心索引/查询逻辑等端到端验证后接入。
-tantivy = "0.22"
 # N2: 仓库内容全文搜索——regex + walkdir。
 regex = "1"
 walkdir = "2"

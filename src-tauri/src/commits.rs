@@ -88,8 +88,21 @@ pub(crate) fn read_commits(repo: &Path, git: &Path, limit: usize) -> Result<Vec<
         .output()
         .map_err(|e| format!("无法运行 git: {e}"))?;
     if !head.status.success() {
-        // Unborn HEAD: an empty clone. Other failures (not a repository, corrupt
-        // object store) land here too; `git status` below is what distinguishes them.
+        // No HEAD is expected for an empty clone. A directory that is not a
+        // repository at all must not be reported as "empty": one more probe
+        // separates the two, and only the empty case is a successful answer.
+        let in_repo = crate::downloader::git_cmd(git)
+            .arg("-C")
+            .arg(repo)
+            .arg("rev-parse")
+            .arg("--git-dir")
+            .env("GIT_TERMINAL_PROMPT", "0")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        if !in_repo {
+            return Err(format!("不是可读的 Git 仓库：{}", repo.display()));
+        }
         return Ok(Vec::new());
     }
 
@@ -186,6 +199,15 @@ mod tests {
         }
         let rows = read_commits(&dir, Path::new(&git.path), 10).expect("empty repo");
         assert!(rows.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_directory_that_is_not_a_repository_is_an_error() {
+        let Some(git) = crate::downloader::find_git(None) else { return };
+        let dir = scratch("not-a-repo");
+        let err = read_commits(&dir, Path::new(&git.path), 10).expect_err("must not look like an empty repository");
+        assert!(err.contains("不是可读的 Git 仓库"), "{err}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

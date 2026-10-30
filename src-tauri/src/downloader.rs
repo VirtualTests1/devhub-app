@@ -588,6 +588,7 @@ impl std::fmt::Display for DownloadError {
             ),
             Self::AllLayersFailed(attempts) => {
                 writeln!(f, "四条下载路径全部失败：")?;
+                let mut details = String::new();
                 for a in attempts {
                     writeln!(
                         f,
@@ -596,6 +597,14 @@ impl std::fmt::Display for DownloadError {
                         a.label,
                         a.detail
                     )?;
+                    details.push_str(&a.detail);
+                    details.push('\n');
+                }
+                // The layer details are git/curl's own words. They name the
+                // mechanism, not the next action, and "fatal: unable to access"
+                // repeated four times is where a person stops reading.
+                if let Some(advice) = failure_advice(&details) {
+                    writeln!(f, "建议：{advice}")?;
                 }
                 Ok(())
             }
@@ -614,6 +623,45 @@ impl std::fmt::Display for DownloadError {
 }
 
 impl std::error::Error for DownloadError {}
+
+/// The one next step worth printing after every layer failed.
+///
+/// Git and curl report in English across every locale, so the match is on their
+/// stable phrases, not on a translated message. The order is deliberate: a
+/// permission error can also mention a path, and a DNS failure can also time
+/// out; the first class that explains the failure wins. `None` means the details
+/// did not match a known class — inventing advice there would be worse than
+/// leaving git's own sentence alone.
+pub(crate) fn failure_advice(details: &str) -> Option<&'static str> {
+    let d = details.to_ascii_lowercase();
+    if d.contains("no space left") || d.contains("not enough space") || d.contains("disk full") {
+        return Some("磁盘空间不足。清理项目缓存或回收站后重试。");
+    }
+    if d.contains("permission denied") || d.contains("access is denied") {
+        return Some("目标目录没有写入权限，或文件正被另一个程序占用。换一个落位目录或关闭占用程序后重试。");
+    }
+    if d.contains("filename too long") || d.contains("path too long") || d.contains("pathspec") && d.contains("too long") {
+        return Some("路径过长。换一个更短的落位目录，或缩短项目名后重试。");
+    }
+    if d.contains("could not resolve host")
+        || d.contains("failed to connect")
+        || d.contains("connection timed out")
+        || d.contains("timed out")
+    {
+        return Some("网络不可达。检查代理、VPN 或系统 hosts 后重试；网络诊断可确认 GitHub 是否可达。");
+    }
+    if d.contains("authentication failed")
+        || d.contains("could not read username")
+        || d.contains("http 401")
+        || d.contains("http 403")
+    {
+        return Some("认证失败。检查设置里的 GitHub Token 是否有效、是否具备该仓库权限。");
+    }
+    if d.contains("repository not found") || d.contains("not found") {
+        return Some("仓库不存在或没有访问权限。检查 owner/repo 拼写与仓库可见性。");
+    }
+    None
+}
 
 // ---------------------------------------------------------------------------
 // URL parsing
@@ -3605,6 +3653,13 @@ impl Downloader {
                 .map_err(|e| DownloadError::Io(format!("无法创建 {}: {e}", parent.display())))?;
         }
 
+        // r33-D1: a sentinel beside the landing directory, removed by Drop on
+        // every normal exit. `panic = "abort"` means a killed process leaves it
+        // behind, and the next startup's sweep can then tell a half-clone from a
+        // directory that merely happens to have the same name. Best-effort: a
+        // read-only parent must not fail the download over a cleanup marker.
+        let _clone_sentinel = crate::sweep::CloneSentinel::start(&target);
+
         let mut attempts: Vec<AttemptRecord> = Vec::new();
 
         progress(
@@ -5921,6 +5976,31 @@ mod tests {
         assert_eq!(l.command, "npm run dev");
         assert!(l.user_confirmed);
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn failure_advice_names_a_next_step_and_the_error_prints_it() {
+        assert!(failure_advice("fatal: No space left on device").unwrap().contains("空间"));
+        assert!(failure_advice("error: Permission denied (publickey)").unwrap().contains("权限"));
+        assert!(failure_advice("fatal: unable to access: Could not resolve host: github.com")
+            .unwrap()
+            .contains("网络"));
+        assert!(failure_advice("fatal: Authentication failed for 'https://...'")
+            .unwrap()
+            .contains("认证"));
+        assert!(failure_advice("remote: Repository not found.").unwrap().contains("仓库"));
+        assert_eq!(failure_advice("fatal: something nobody classified"), None);
+
+        let err = DownloadError::AllLayersFailed(vec![AttemptRecord {
+            layer: DownloadLayer::Direct,
+            label: "直连".to_string(),
+            ok: false,
+            detail: "fatal: No space left on device".to_string(),
+            ms: 3,
+        }]);
+        let text = err.to_string();
+        assert!(text.contains("全部失败"), "{text}");
+        assert!(text.contains("建议："), "a classified failure must carry one next step: {text}");
     }
 
     #[test]

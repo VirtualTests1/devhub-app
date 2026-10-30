@@ -161,7 +161,10 @@ test("bundle diet 3: src/lib/i18n.ts 体积棘轮（抬高上限必须在提交�
   // awareness and the license overview added 26 paired keys (measured
   // 153,303 B). Every one is a literal `t("…")` call site; bundle diet 1 still
   // proves there is no second key table.
-  const I18N_MAX_BYTES = 156_000;
+  // 156_000 -> 159_000 on 2026-10-30 (r34): health issue labels, the secret
+  // scanner and search progress/cancel added 45 paired keys (measured
+  // 156,332 B with the checkout's CRLF). Same literal-call-site rule.
+  const I18N_MAX_BYTES = 159_000;
   // 86_000 -> 88_000 on 2026-10-30 (r33): the same 26 paired keys, English side
   // measured 86,049 B. Values only; no lookup logic lives here.
   const EN_MAX_BYTES = 88_000;

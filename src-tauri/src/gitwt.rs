@@ -514,7 +514,6 @@ struct Record {
 /// are facts about the **disk**, and a parser that also stats the filesystem
 /// cannot be tested without one. [`list`] stamps them.
 fn parse_porcelain(text: &str, repo: &Path) -> Vec<WorktreeInfo> {
-    let mut records: Vec<Record> = Vec::new();
     let mut current: Option<Record> = None;
 
     let flush = |current: &mut Option<Record>, out: &mut Vec<Record>| {

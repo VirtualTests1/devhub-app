@@ -36,7 +36,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::{Emitter, Manager};
 
-use crate::{snapshot_processes, ProcessState, ProcTable, Settings, Tracked};
+use crate::{snapshot_processes, ProcessState, ProcTable, Settings};
 
 /// How often the monitor reaps the table. A crash is therefore visible in under a
 /// second, while a mutation site pushes immediately. One `try_wait` per tracked
@@ -127,6 +127,7 @@ pub(crate) fn start_monitor(app: tauri::AppHandle) {
 
 #[cfg(test)]
 mod tests {
+    use crate::Tracked;
     use super::*;
     use crate::EXITED_TTL;
     use std::collections::HashMap;

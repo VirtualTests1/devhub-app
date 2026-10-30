@@ -21,9 +21,11 @@
 //   0  clean      —— 工具在，数据库应答，0 条 advisory
 //   1  vulnerable —— 工具在，报出 ≥1 条 advisory（按严重度打印包名）
 //   2  cannot-determine / tool-missing —— cargo-audit 不在 PATH、或数据库拉不下来。
-//                    这一态打印安装命令与原因，但**不**让门禁失败：本机不要求装
-//                    cargo-audit（它是 `cargo install` 出来的全局二进制，本项目约束
-//                    禁止全局安装）；工具一旦装好，同一条命令就变成真正的 verdict。
+//                    默认情况下这一态打印安装命令与原因，但**不**让本机门禁失败：本机
+//                    不要求装 cargo-audit（它是 `cargo install` 出来的全局二进制，本项目
+//                    约束禁止全局安装）。CI 传 `--require`：工具或数据库不可用时退出 2，
+//                    于是“审计没跑”与“审计跑了且干净”不再都印成绿色。工具一旦装好，
+//                    同一条命令就变成真正的 verdict。
 //
 // 只读：`cargo audit` 不写 Cargo.lock，不改依赖树。
 
@@ -41,9 +43,17 @@ function findCargoAudit() {
   const onPath = spawnSync("cargo-audit", ["--version"], { encoding: "utf8" });
   if (onPath.status === 0) return "cargo-audit";
   // 兜底：~/.cargo/bin 是 cargo install 的默认落点，未必在 PATH 上。
+  const exe = process.platform === "win32" ? "cargo-audit.exe" : "cargo-audit";
   const home = process.env.USERPROFILE || process.env.HOME || "";
-  const candidate = join(home, ".cargo", "bin", process.platform === "win32" ? "cargo-audit.exe" : "cargo-audit");
-  if (existsSync(candidate)) return candidate;
+  const candidates = [
+    // Project-local install: `cargo install --root .pack/tools ...`. Keeps the
+    // tool out of the global cargo bin, which the project rules forbid.
+    join(repoRoot, ".pack", "tools", "bin", exe),
+    join(home, ".cargo", "bin", exe),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) return candidate;
+  }
   return null;
 }
 
@@ -93,6 +103,12 @@ function main() {
   if (process.argv.includes("--selftest")) {
     return selftest();
   }
+  const requireTool = process.argv.includes("--require");
+  const unknown = process.argv.slice(2).filter((a) => a !== "--require");
+  if (unknown.length) {
+    console.error(`rust-supply.mjs: unrecognised argument(s): ${unknown.join(" ")} (accepted: --require --selftest)`);
+    return 2;
+  }
   if (!existsSync(join(srcTauri, "Cargo.lock"))) {
     console.error("SKIP: 未找到 src-tauri/Cargo.lock，跳过 Rust 供应链审计。");
     return 0; // 没锁文件就没东西可审，不是失败。
@@ -102,9 +118,9 @@ function main() {
   if (!bin) {
     // tool-missing = 2：信息态，不 FAIL。打印安装指引，让人知道怎么把它变成真 verdict。
     console.error("INFO: cargo-audit 未安装，Rust 供应链审计跳过（不计失败）。");
-    console.error("      安装后本命令自动生效：cargo install cargo-audit");
+    console.error("      安装后本命令自动生效：cargo install cargo-audit --locked");
     console.error("      （cargo install 是全局二进制，本项目默认不自动安装；装上后即用。）");
-    return 2;
+    return requireTool ? 2 : 0;
   }
 
   const res = spawnSync(bin, ["audit", "--json"], {
@@ -140,4 +156,6 @@ function main() {
 }
 
 const code = main();
-process.exit(code === 2 ? 0 : code); // 2 = INFO，对外不报失败（与 hooks-path 一致）。
+// 2 = INFO locally (the tool may be absent by design); with --require it is a
+// real failure, because CI's whole point is that "not audited" is not green.
+process.exit(code === 2 && !process.argv.includes("--require") ? 0 : code);

@@ -269,9 +269,6 @@ impl ActivityEntry {
 /// from `spawn_blocking` workers, so the interleaving is real, not theoretical.
 static ACTIVITY_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// Distinguishes temp files inside one process.
-
-
 /// Takes the log gate, surviving a previous panic in a worker rather than
 /// permanently disabling recording. A poisoned lock still guards the same file.
 fn activity_lock() -> std::sync::MutexGuard<'static, ()> {

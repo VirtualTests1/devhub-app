@@ -14,7 +14,6 @@
 
 use std::process::Command;
 
-use serde::Serialize;
 
 /// `CREATE_NO_WINDOW` from the Win32 process-creation flags.
 pub const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -453,7 +452,7 @@ pub fn set_tree_suspended(root: u32, suspended: bool) -> Result<usize, String> {
 pub type JobHandle = Option<isize>;
 
 const JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE: u32 = 0x0000_2000;
-const JobObjectExtendedLimitInformation: u32 = 9;
+const JOB_OBJECT_EXTENDED_LIMIT_INFORMATION: u32 = 9;
 const PROCESS_SET_QUOTA: u32 = 0x0100;
 const PROCESS_TERMINATE: u32 = 0x0001;
 
@@ -508,7 +507,7 @@ pub fn create_kill_on_close_job() -> JobHandle {
         info.limit_flags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
         let ok = SetInformationJobObject(
             job,
-            JobObjectExtendedLimitInformation,
+            JOB_OBJECT_EXTENDED_LIMIT_INFORMATION,
             &mut info as *mut _ as *mut core::ffi::c_void,
             std::mem::size_of::<JobObjectBasicLimitInformation>() as u32,
         );

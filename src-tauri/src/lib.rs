@@ -411,9 +411,6 @@ fn human_bytes(n: u64) -> String {
     }
 }
 
-/// The activity log lives next to the config file, keeping the portable layout
-/// self-contained.
-
 // ---------------------------------------------------------------------------
 // Agent / app state
 // ---------------------------------------------------------------------------
@@ -497,8 +494,6 @@ struct Tracked {
     /// Whether the last suspend/resume request succeeded.
     suspended: bool,
 }
-
-/// What the launch dialog polls for.
 
 /// How long an exited process stays listed before the registry forgets it.
 /// Long enough for the dialog to notice and show the exit code, short enough

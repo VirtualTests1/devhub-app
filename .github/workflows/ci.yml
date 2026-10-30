@@ -1,10 +1,10 @@
 name: CI
 
-# 状态：**未执行过的配置，不是通过的流水线。**
-# 本仓库在 2026-10-14 没有任何远程（`git remote -v` 输出为空），所以这个文件一次都没有
-# 被 GitHub Actions 跑过。写它的依据全部来自本仓实测：`package.json` 的脚本入口、
-# DEVELOPMENT.md §1（为什么这台机器必须 `env.ps1`）与 §8（lint 依赖未安装的真实状态）。
-# 迁移到有远程的仓库后，第一次运行就是它的真机验证。
+# 状态：**本地验证过命令，CI 对本次改动尚未核实。**
+# 本文件写于 2026-10-14、当时仓库没有远程；2026-10-28 起仓库已有远程与 Release。
+# 2026-10-30 的这一轮改动（r33）没有推送，所以 GitHub Actions 对新增的 clippy /
+# cargo-audit 步骤还没有运行记录——本地跑的是同样的命令，不把“本地通过”说成 CI 通过。
+# 其余步骤的依据来自本仓实测：`package.json` 的脚本入口、DEVELOPMENT.md §1 与 §8。
 
 on:
   push:
@@ -149,6 +149,16 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib
 
+      # r33-D10: clippy is a merge gate now, not a thing someone remembers to
+      # run. It denies the correctness and suspicious groups — the lints that
+      # change behaviour — and reports style/complexity without failing. The
+      # tree measured 45 style/complexity warnings on 2026-10-30; they are
+      # deliberately not hidden behind `-D warnings` until the cleanup is done,
+      # and `pnpm rust:clippy` is the local entry point for that cleanup.
+      - name: cargo clippy（correctness + suspicious 视为错误）
+        working-directory: src-tauri
+        run: cargo clippy --lib -- -D clippy::correctness -D clippy::suspicious
+
   lint:
     name: ESLint
     runs-on: ubuntu-latest
@@ -197,6 +207,13 @@ jobs:
       # (local, pre-release). CI is the right place for it: it runs on every
       # push to master, so a new dependency that fails the audit lands here
       # before it ships. The script exits 0/1/2 like license-report (0 = clean,
-      # 1 = known issues, 2 = indeterminate); only 0 and 1 are acceptable in CI.
-      - name: Rust 供应链检查
-        run: node scripts/rust-supply.mjs
+      # 1 = known issues, 2 = indeterminate). `--require` makes 2 a failure:
+      # before r33-D10 the job passed when cargo-audit was simply absent, which
+      # is the "green without coverage" shape this repo keeps finding.
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: 安装 cargo-audit（固定版本）
+        run: cargo install cargo-audit --locked --version 0.22.2
+
+      - name: Rust 供应链检查（工具/数据库缺失即失败）
+        run: node scripts/rust-supply.mjs --require

@@ -29,6 +29,9 @@ r33 这一步先修掉 3 个 `empty_lines_after_doc_comments`，`--lib` 口径�
   `large_enum_variant`（`Line`、`MarkerFile`；boxing 会在热路径分配）。
 - 最终 `cargo clippy --lib -- -D warnings` **0 warning / 0 error**，CI 的门禁也换成了
   这一条。`--all-targets` 仍会报告测试代码的风格建议，没有纳入错误门禁。
+- CI 的 stable 工具链（rustc 1.99.0）在 2026-10-30 首次推送后另报两处
+  `chunks_exact_to_as_chunks`（`launch.rs`、`crypto.rs`）；已改用 `as_chunks::<2>()`，
+  两处都忽略尾部余数，行为不变。
 
 
 ## 2. cargo-audit：真实运行结果与一次网络失败
@@ -63,8 +66,8 @@ cd src-tauri
 ```
 
 结论：**在缓存的 RustSec 数据库（1 386 条 advisory、509 个依赖）上为 0 条已知漏洞**；
-数据库刷新在本机不稳定，CI 的 `--require` 会强制“刷新失败即失败”。本轮未推送，
-**CI 结果未核实**。
+数据库刷新在本机不稳定，CI 的 `--require` 会强制“刷新失败即失败”。2026-10-30 推送后，
+CI 的 supply-chain job 通过。
 
 ## 3. Node 覆盖率基线
 
@@ -94,8 +97,9 @@ node scripts/rust-supply.mjs --require   # 需要能访问 RustSec advisory-db �
 
 ## 6. 未验证 / 遗留
 
-- CI 上 clippy 与 cargo-audit 步骤未实际运行（r33/r34 均未推送）；本地跑的是同一命令。
-  审计的“0 条”是缓存数据库读数，不是对 GitHub 最新 DB 的实时结论。
+- 2026-10-30 推送后 CI 已实际运行：web、lint、supply-chain 通过；clippy 首次 run
+  在 rustc 1.99 上报的两处 `chunks_exact_to_as_chunks` 已修复并再次推送，最终以
+  修复后的 run 为准。审计的“0 条”仍是缓存数据库读数，不是对 GitHub 最新 DB 的实时结论。
 - `--all-targets` 仍会报告测试代码的风格建议，因此门禁口径是 `--lib`；两个窄例外
   （crate 级 `too_many_arguments`、两处 `large_enum_variant`）已在第 1 节记录。
 - 覆盖率未按目录设阈值；`src-tauri` 没有 JS 覆盖率口径，Rust 侧靠 493 个

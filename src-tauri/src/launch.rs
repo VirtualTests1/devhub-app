@@ -1722,7 +1722,9 @@ fn wsl_distros(wsl_exe: &str) -> Vec<String> {
     };
     let text = if looks_utf16le(&raw) {
         let utf16: Vec<u16> = raw
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|c| u16::from_le_bytes([c[0], c[1]]))
             .collect();
         String::from_utf16_lossy(&utf16)

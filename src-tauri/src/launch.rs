@@ -912,12 +912,11 @@ pub struct PythonInstall {
 
 /// Parses the `py -0p` listing into interpreters.
 ///
-/// The launcher's output shape (measured on this machine's three-install
-/// layout, `REQUIREMENTS.md` §3.6):
+/// The launcher's output shape (three installs, `REQUIREMENTS.md` §3.6):
 ///
 /// ```text
 ///  -V:3.13-64 *        C:\Users\me\AppData\Local\Programs\Python\Python313\python.exe
-///  -V:3.12-64          E:\wai\python\python.exe
+///  -V:3.12-64          C:\Python312\python.exe
 /// ```
 ///
 /// The `*` marks the default. Only lines that actually name a `python*.exe`
@@ -3178,14 +3177,14 @@ mod tests {
 mod d8_tests {
     use super::*;
 
-    /// The exact shape this machine's `py -0p` prints (three installs,
-    /// `REQUIREMENTS.md` §3.6), including the `*` default marker and the header
-    /// line that must not become an interpreter.
+    /// A `py -0p` shape with three installs (`REQUIREMENTS.md` §3.6), including
+    /// the `*` default marker and the header line that must not become an
+    /// interpreter.
     const PY_LIST: &str = "\
 Installed Pythons found by py Launcher for Windows
  -V:3.13-64 *        C:\\Users\\me\\AppData\\Local\\Programs\\Python\\Python313\\python.exe
- -V:3.12-64          E:\\wai\\python\\python.exe
- -V:3.10-64          D:\\wai\\Python3115\\python.exe
+ -V:3.12-64          C:\\Python312\\python.exe
+ -V:3.10-64          C:\\Python311\\python.exe
 ";
 
     #[test]
@@ -3198,7 +3197,7 @@ Installed Pythons found by py Launcher for Windows
             r"C:\Users\me\AppData\Local\Programs\Python\Python313\python.exe"
         );
         assert_eq!(list[1].version, "3.12");
-        assert_eq!(list[1].id, r"E:\wai\python\python.exe");
+        assert_eq!(list[1].id, r"C:\Python312\python.exe");
         assert_eq!(list[2].version, "3.10");
         assert!(list.iter().all(|p| p.source == "py"));
     }
@@ -3211,9 +3210,9 @@ Installed Pythons found by py Launcher for Windows
         // trims the quotes off the token, so the expectation has to be the plain
         // path it was given — and the token must still END in `python.exe`, which a
         // trailing slash would break.
-        let list = parse_py_list(" -V:3.12-64  \"E:\\wai\\python\\python.exe\"\n");
+        let list = parse_py_list(" -V:3.12-64  \"C:\\Python312\\python.exe\"\n");
         assert_eq!(list.len(), 1);
-        assert_eq!(list[0].id, r"E:\wai\python\python.exe");
+        assert_eq!(list[0].id, r"C:\Python312\python.exe");
         // Duplicates collapse.
         let dup = format!("{PY_LIST}{PY_LIST}");
         assert_eq!(parse_py_list(&dup).len(), 3);
@@ -3244,7 +3243,7 @@ Installed Pythons found by py Launcher for Windows
         // this test fail on a correct implementation.
         let env = LaunchEnv {
             venv: Some(std::path::PathBuf::from(r"D:\app\项目\venvs\alice_tool")),
-            python_dir: Some(std::path::PathBuf::from(r"E:\wai\python")),
+            python_dir: Some(std::path::PathBuf::from(r"C:\Python312")),
             ports: vec![("http".into(), 20000)],
         };
         let vars = child_env(&env);
@@ -3256,7 +3255,7 @@ Installed Pythons found by py Launcher for Windows
         let venv_at = path
             .find(r"venvs\alice_tool\Scripts")
             .expect("venv Scripts on PATH");
-        let pin_at = path.find(r"E:\wai\python").expect("pin on PATH");
+        let pin_at = path.find(r"C:\Python312").expect("pin on PATH");
         assert!(venv_at < pin_at, "venv must win: {path}");
         assert!(vars.iter().any(|(k, v)| k == "VIRTUAL_ENV"
             && v == r"D:\app\项目\venvs\alice_tool"));
@@ -3271,7 +3270,7 @@ Installed Pythons found by py Launcher for Windows
     fn child_env_without_a_venv_exports_no_virtual_env() {
         let env = LaunchEnv {
             venv: None,
-            python_dir: Some(std::path::PathBuf::from(r"E:/wai/python")),
+            python_dir: Some(std::path::PathBuf::from(r"C:/Python312")),
             ports: Vec::new(),
         };
         let vars = child_env(&env);

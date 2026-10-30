@@ -1004,7 +1004,7 @@ pub struct Marker {
     /// Which Python interpreter this repository launches with (round 11, 需求 8.5).
     ///
     /// The machine can carry several (this one has three: `python` → 3.11.5,
-    /// `py -3.12` → E:\wai\python, `py -3.10`), and `REQUIREMENTS.md` §3.6 records
+    /// `py -3.12` → C:\Python312, `py -3.10`), and `REQUIREMENTS.md` §3.6 records
     /// that not locking the version "必然产生依赖冲突". The value is the
     /// interpreter's own path; `None` follows the venv, then PATH.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -6342,13 +6342,13 @@ mod tests {
     fn clone_strategy_flags_are_only_issued_where_git_would_honour_them() {
         // A measured fact from `scripts/clone-bench.ps1` phase A: against a filesystem
         // path git prints `--depth is ignored in local clones` and clones everything.
-        assert!(source_ignores_clone_strategy("D:\\wai\\mirror\\upstream"));
+        assert!(source_ignores_clone_strategy("D:\\mirror\\upstream"));
         assert!(source_ignores_clone_strategy("/srv/mirror/upstream.git"));
         assert!(source_ignores_clone_strategy("./relative"));
         assert!(source_ignores_clone_strategy(""));
         // `file://` is the transport a mirror restore can use and git names it as the
         // remedy for the ignored flag, so it must NOT be treated as local.
-        assert!(!source_ignores_clone_strategy("file:///D:/wai/mirror/upstream"));
+        assert!(!source_ignores_clone_strategy("file:///D:/mirror/upstream"));
         assert!(!source_ignores_clone_strategy("https://github.com/o/r"));
         assert!(!source_ignores_clone_strategy("HTTP://example.com/o/r"));
         assert!(!source_ignores_clone_strategy("git@github.com:o/r"));
@@ -6363,8 +6363,8 @@ mod tests {
         assert_eq!(clone_strategy_args("SHALLOW", remote), ["--depth", "1"]);
         assert_eq!(clone_strategy_args("blobless", remote), ["--filter=blob:none"]);
         // And the local case issues nothing at all, flag-shaped or otherwise.
-        assert!(clone_strategy_args("shallow", "D:\\wai\\mirror\\upstream").is_empty());
-        assert!(clone_strategy_args("blobless", "D:\\wai\\mirror\\upstream").is_empty());
+        assert!(clone_strategy_args("shallow", "D:\\mirror\\upstream").is_empty());
+        assert!(clone_strategy_args("blobless", "D:\\mirror\\upstream").is_empty());
     }
 
     /// The sentences that go into the activity record. Each one is checked against the

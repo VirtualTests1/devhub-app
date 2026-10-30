@@ -1,8 +1,8 @@
 #!/bin/sh
 # Refuse to publish the local-only archive tags.
 #
-# The pre-public-reset history is kept locally under `archive/*` tags and one
-# `archive/...` branch so it stays recoverable. That history predates the public
+# The pre-public-reset history is kept locally under `archive/*` tags and
+# branches so it stays recoverable. That history predates the public
 # cleanup: its commits carry a personal email and machine-local paths. A plain
 # `git push --tags` would publish all of it. Release tags (`v*`) and branches are
 # not affected.

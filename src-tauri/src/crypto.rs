@@ -94,7 +94,7 @@ fn to_hex(bytes: &[u8]) -> String {
 }
 
 fn from_hex(text: &str) -> Result<Vec<u8>, String> {
-    if text.len() % 2 != 0 {
+    if !text.len().is_multiple_of(2) {
         return Err("DPAPI 载荷的十六进制长度是奇数".to_string());
     }
     let bytes = text.as_bytes();

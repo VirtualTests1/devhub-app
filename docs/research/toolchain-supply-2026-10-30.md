@@ -11,18 +11,25 @@
 `cloned_ref_to_slice_refs`（测试夹具）、`sort_by_key`、`div_ceil`、`is_multiple_of`、
 `empty_lines_after_doc_comment` 等。
 
-决定：**不**用 `-D warnings` 一次性抬高（那会变成一次跨 20+ 文件的重写，且其中
-`too_many_arguments` 涉及 Tauri 命令签名），而是把**会改变行为的两组**设为错误：
+决定分两步：r33 先把**会改变行为的两组**设为错误，r34 完成剩余清理后把
+`-D warnings` 全量打开：
 
 ```powershell
-cargo clippy --all-targets -- -D clippy::correctness -D clippy::suspicious
-pnpm rust:clippy   # 同一个命令的本地入口（--lib）
+cargo clippy --lib -- -D warnings
+pnpm rust:clippy   # 同一个命令的本地入口
 ```
 
-这一步先发现并修掉 3 个 `empty_lines_after_doc_comments`（`activity.rs`、`lib.rs`
-两处），随后 `--lib` 口径 **0 error / 45 style+complexity warnings**。45 条是已测量的
-债务，不隐藏：`rust:clippy` 会原样打印它们，`-D warnings` 留到清理完成后再上。
-CI 的 `cargo clippy` 步骤跑同一组 lint（`.github/workflows/ci.yml`）。
+r33 这一步先修掉 3 个 `empty_lines_after_doc_comments`，`--lib` 口径剩下
+**45 条 style/complexity**。r34 的清理：
+- clippy 自动修复了可机改的项（`sort_by_key`、`div_ceil`、`is_multiple_of`、
+  单分支 `match`、doc 缩进等）；
+- 删除了 5 个确实无调用者的死函数/方法，把只被测试用的 3 个标成 `#[cfg(test)]`；
+- 保留两个**有记录的窄例外**：crate 级 `too_many_arguments`（Tauri 命令与
+  launch/clone 管道的签名，打包进结构体是单独的 API 设计），以及两处
+  `large_enum_variant`（`Line`、`MarkerFile`；boxing 会在热路径分配）。
+- 最终 `cargo clippy --lib -- -D warnings` **0 warning / 0 error**，CI 的门禁也换成了
+  这一条。`--all-targets` 仍会报告测试代码的风格建议，没有纳入错误门禁。
+
 
 ## 2. cargo-audit：真实运行结果与一次网络失败
 

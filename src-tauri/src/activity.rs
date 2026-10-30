@@ -454,6 +454,7 @@ pub fn append(path: &Path, entry: &ActivityEntry) -> Result<(), String> {
 /// Unparseable lines are carried through a rewrite rather than dropped. A torn
 /// final line is expected and harmless to lose, but a line only this build
 /// cannot parse (written by a newer build) must not be deleted by an older one.
+#[allow(clippy::large_enum_variant)] // boxing every parsed line would allocate on the hot append path
 enum Line {
     Entry(ActivityEntry),
     Raw(String),

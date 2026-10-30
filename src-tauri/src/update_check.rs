@@ -13,6 +13,7 @@
 //! condition, not evidence that the release feed is untrusted.
 
 use serde::Serialize;
+#[cfg(test)]
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -100,6 +101,7 @@ fn parse_version(raw: &str) -> Option<(u64, u64, u64)> {
     Some((major, minor, patch))
 }
 
+#[cfg(test)]
 fn compare_versions(a: &str, b: &str) -> Option<Ordering> {
     Some(parse_version(a)?.cmp(&parse_version(b)?))
 }

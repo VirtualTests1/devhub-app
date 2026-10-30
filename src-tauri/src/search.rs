@@ -477,8 +477,7 @@ pub fn status_of(raw: &str) -> Option<u16> {
     }
     raw.get(..body_start.min(raw.len()))?
         .lines()
-        .filter(|line| line.starts_with("HTTP/"))
-        .last()
+        .rfind(|line| line.starts_with("HTTP/"))
         .and_then(|line| line.split_whitespace().nth(1))
         .and_then(|code| code.parse::<u16>().ok())
 }

@@ -195,7 +195,7 @@ fn resolve_in_roots(
 /// boundary and a directory named `..cache` inside an allowed root is just a
 /// directory.
 fn contains_dotdot_segment(path: &str) -> bool {
-    path.split(|c| c == '\\' || c == '/').any(|seg| seg == "..")
+    path.split(['\\', '/']).any(|seg| seg == "..")
 }
 
 /// Checks one page-supplied path against `roots`.
@@ -257,18 +257,16 @@ pub fn app_roots(app: &tauri::AppHandle) -> Vec<PathBuf> {
         out.push(dir.to_path_buf());
     }
     let path = app.path();
-    for dir in [
+    for p in [
         path.app_config_dir(),
         path.app_data_dir(),
         path.temp_dir(),
         path.desktop_dir(),
         path.document_dir(),
         path.download_dir(),
-    ] {
-        if let Ok(p) = dir {
-            if !out.contains(&p) {
-                out.push(p);
-            }
+    ].into_iter().flatten() {
+        if !out.contains(&p) {
+            out.push(p);
         }
     }
     out

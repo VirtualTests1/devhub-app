@@ -296,7 +296,7 @@ const RUST_TEST_FLOOR = 210;
 // (+43 -> 6026 today). The ceiling follows the file down so the next round
 // starts from the smaller number; raising it again needs its own recorded
 // reason, same rule as above.
-const LIB_RS_CEILING = 5666;
+const LIB_RS_CEILING = 5680; // r34: +4 handler rows and health/secrets module declarations
 
 /**
  * One match = one test function: `#[test]`, `#[tokio::test]`,

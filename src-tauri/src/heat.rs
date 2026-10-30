@@ -128,6 +128,7 @@ impl HeatCache {
         }
     }
 
+    #[cfg(test)]
     pub fn len(&self) -> usize {
         self.entries.len()
     }
@@ -289,9 +290,11 @@ pub fn parse_heat(slug: &str, body: &str) -> Option<Heat> {
 #[derive(Debug, Clone)]
 pub struct FetchResult {
     pub heat: Heat,
-    /// Whether this answer consumed a GitHub API request: `0` for a `304` (free by
-    /// GitHub's own rule) and for a request that never reached the API, `1` otherwise —
-    /// including a `404`/`403`, which GitHub does charge.
+    /// Whether this answer consumed a GitHub API request (0 for a 304 or a
+    /// transport failure, 1 otherwise). No production caller reads it today; it
+    /// is the accounting model the tests pin so a future quota change cannot
+    /// silently relabel a free 304 as charged.
+    #[allow(dead_code)]
     pub charged: u8,
     pub etag: Option<String>,
     pub remaining: Option<u32>,

@@ -9,7 +9,7 @@
 //!   3. download PortableGit-<v>-64-bit.7z.exe (~57 MB, 4 MB/s measured)
 //!   4. run it silently: `PortableGit.exe -o"<dir>" -y`
 //!      (measured: exits 0 on its own, no GUI, ~165 s -> 391 MB extracted,
-//!       yields a working `git version 2.56.0.windows.1`)
+//!      yields a working `git version 2.56.0.windows.1`)
 //!   5. verify the extracted binary by running `git --version`
 //!   6. record provenance in a marker file
 //!
@@ -330,7 +330,7 @@ fn extract_silently(
                     let _ = child.wait();
                     return Err(format!("自解压超时（超过 {timeout_secs} 秒）"));
                 }
-                if started.elapsed().as_secs() % 15 == 0 {
+                if started.elapsed().as_secs().is_multiple_of(15) {
                     progress(
                         "git-bootstrap",
                         &format!("解压中… 已用 {} 秒", started.elapsed().as_secs()),

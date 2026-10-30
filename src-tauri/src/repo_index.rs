@@ -198,7 +198,7 @@ fn scan_root(root: &Path) -> RootIndex {
         &mut stats,
     );
 
-    entries.sort_by(|a, b| a.repo_ref.slug().cmp(&b.repo_ref.slug()));
+    entries.sort_by_key(|a| a.repo_ref.slug());
     entries.dedup_by(|a, b| a.repo_ref.slug() == b.repo_ref.slug());
 
     // A skipped junction is not an error, but it is the reason a directory the
@@ -367,7 +367,7 @@ impl Index {
             .iter()
             .flat_map(|r| r.entries.iter().map(|e| e.repo_ref.clone()))
             .collect();
-        out.sort_by(|a, b| a.slug().cmp(&b.slug()));
+        out.sort_by_key(|a| a.slug());
         out.dedup_by(|a, b| a.slug() == b.slug());
         out
     }

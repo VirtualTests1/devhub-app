@@ -598,10 +598,6 @@ impl JobGuard {
         }
     }
 
-    /// True when the process tree really is under the job's control.
-    pub fn engaged(&self) -> bool {
-        self.0.is_some()
-    }
 }
 
 impl Drop for JobGuard {

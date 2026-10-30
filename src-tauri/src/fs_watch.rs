@@ -49,18 +49,15 @@ impl DebouncedBatch {
 
     /// 喂入一次变更。返回「此刻是否应 flush 上一批」的判断由调用方按 `flush_due` 取。
     pub fn note(&mut self, slug: &str, now: std::time::Instant, quiet: std::time::Duration) {
-        match self.active_until {
-            Some(until) => {
-                if now < until {
-                    if !self.open.iter().any(|s| s == slug) {
-                        self.open.push(slug.to_string());
-                    }
-                    return;
+        if let Some(until) = self.active_until {
+            if now < until {
+                if !self.open.iter().any(|s| s == slug) {
+                    self.open.push(slug.to_string());
                 }
-                // 窗口已过：落到 flush，开新批。
-                self.open.clear();
+                return;
             }
-            None => {}
+            // 窗口已过：落到 flush，开新批。
+            self.open.clear();
         }
         self.open.push(slug.to_string());
         self.active_until = Some(now + quiet);
@@ -224,6 +221,7 @@ impl ChangeDetector {
             .collect();
     }
 
+    #[cfg(test)]
     pub fn watched_count(&self) -> usize {
         self.watched.len()
     }

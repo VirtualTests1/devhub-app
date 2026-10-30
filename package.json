@@ -33,7 +33,7 @@
     "atlas": "node scripts/bundle-atlas.mjs",
     "i18n:coverage": "node scripts/i18n-coverage.mjs",
     "contrast:audit": "node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/contrast-audit.mjs",
-    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D clippy::correctness -D clippy::suspicious",
+    "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings",
     "test:coverage": "node --experimental-strip-types --experimental-test-coverage --import ./tests/helpers/register.mjs --test --test-concurrency=4 \"tests/**/*.test.ts\""
   },
   "dependencies": {

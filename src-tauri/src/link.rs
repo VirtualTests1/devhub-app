@@ -34,6 +34,7 @@ use crate::netpath::{self, HostsState};
 /// from the facts it describes.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+#[derive(Default)]
 pub struct LinkStatus {
     /// Whether `hosts` redirects a GitHub domain to loopback.
     pub hosts_hijacked: bool,
@@ -62,21 +63,6 @@ pub struct LinkStatus {
     pub advice: String,
 }
 
-impl Default for LinkStatus {
-    fn default() -> Self {
-        Self {
-            hosts_hijacked: false,
-            hosts_redirect_count: 0,
-            hosts_by: None,
-            hosts_first_addr: None,
-            accelerator_online: None,
-            system_proxy: None,
-            resolved_ip: None,
-            ip_is_public: false,
-            advice: String::new(),
-        }
-    }
-}
 
 /// How long a `LinkStatus` is worth reusing.
 ///

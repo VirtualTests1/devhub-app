@@ -98,14 +98,6 @@ pub fn extract_action() -> Option<Action> {
     }
 }
 
-/// 解析命令行 argv 中的 deep link URL，返回 owner/repo；没有或解析失败返回 None。
-pub fn extract_clone_target() -> Option<(String, String)> {
-    match extract_action()? {
-        Action::Clone { owner, repo } => Some((owner, repo)),
-        // `open` 不是克隆请求：调用方专门问 clone 时不能把它当默认形式。
-        Action::Open { .. } => None,
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Windows 协议注册

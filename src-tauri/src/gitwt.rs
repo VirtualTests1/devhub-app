@@ -429,7 +429,7 @@ fn shown(p: &Path) -> String {
 /// Deliberately not a canonicalization: the value from git may name a directory
 /// that no longer exists, and the comparison still has to be meaningful then.
 fn same_path(a: &str, b: &str) -> bool {
-    a.replace('/', "\\").to_ascii_lowercase() == b.replace('/', "\\").to_ascii_lowercase()
+    a.replace('/', "\\").eq_ignore_ascii_case(&b.replace('/', "\\"))
 }
 
 fn git_exe() -> Option<PathBuf> {
@@ -925,6 +925,7 @@ pub fn remove(repo: &Path, root: &Path, path: &Path, force: bool) -> Result<Remo
 /// Goes through the same rules as [`add`], so a preview cannot promise a path the
 /// create button will then refuse (the promise being the point: the panel shows
 /// this *before* the branch field has been submitted).
+#[cfg(test)]
 pub fn preview_path(root: &Path, slug: &str, branch: &str, subdir: Option<&str>) -> String {
     let tail = subdir
         .map(|s| s.trim().to_string())

@@ -132,8 +132,10 @@ impl Drop for NativeWatch {
 
 /// Start watching `root` recursively. The returned receiver yields one message per
 /// OS wakeup; the watcher must be kept alive for the channel to stay open.
+type WatchEvents = Receiver<Result<Vec<String>, String>>;
+
 #[cfg(windows)]
-pub fn start(root: &Path) -> io::Result<(NativeWatch, Receiver<Result<Vec<String>, String>>)> {
+pub fn start(root: &Path) -> io::Result<(NativeWatch, WatchEvents)> {
     use std::os::windows::ffi::OsStrExt;
     let wide: Vec<u16> = root.as_os_str().encode_wide().chain(std::iter::once(0)).collect();
     // SAFETY: `wide` is a NUL-terminated UTF-16 path; the returned handle is null-checked.

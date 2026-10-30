@@ -306,6 +306,11 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
     let mut reparse = 0u64;
     let mut hits_total = 0usize;
     let mut n_total = 0usize;
+    let mut sample_slugs: Vec<String> = Vec::new();
+    // One full walk per slug is O(n²); at 1 000 repositories it is minutes, not
+    // a measurement. A fixed sample keeps the diagnostic usable at scale while
+    // still comparing the same slugs against the index in this run.
+    const SCAN_LOOKUP_CAP: usize = 20;
 
     for i in 1..=runs {
         let mut stats = downloader::WalkStats::default();
@@ -335,14 +340,15 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
                 }
             });
         }
-        out.sort_by(|a, b| a.slug().cmp(&b.slug()));
+        out.sort_by_key(|a| a.slug());
         out.dedup_by(|a, b| a.slug() == b.slug());
         let list_ms = t_list.elapsed().as_millis();
 
         // What the `find_repo_any` call sites cost: one full walk per slug.
         let t_lookup = std::time::Instant::now();
         let mut hits = 0usize;
-        for r in &out {
+        let sample: Vec<&RepoRef> = out.iter().take(SCAN_LOOKUP_CAP).collect();
+        for r in &sample {
             let slug = r.slug();
             let found = roots
                 .iter()
@@ -354,12 +360,14 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
         let lookup_ms = t_lookup.elapsed().as_millis();
         hits_total = hits;
         n_total = out.len();
+        sample_slugs = sample.iter().map(|r| r.slug()).collect();
 
         println!(
-            "run {i}: walk={walk_ms}ms dirs={} repos={} | list={list_ms}ms refs={} | lookups={lookup_ms}ms resolved={hits}/{n}",
+            "run {i}: walk={walk_ms}ms dirs={} repos={} | list={list_ms}ms refs={} | lookups={lookup_ms}ms resolved={hits}/{sample_n} sampled={sample_n}/{n}",
             stats.dirs_visited,
             stats.repos,
             out.len(),
+            sample_n = sample.len(),
             n = out.len()
         );
         worst_walk = worst_walk.max(walk_ms);
@@ -377,7 +385,7 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
     println!("reparse_skipped_max = {reparse}");
     println!("worst_walk_ms = {worst_walk}");
     println!("worst_list_ms = {worst_list}");
-    println!("worst_lookup_all_slugs_ms = {worst_lookup}");
+    println!("worst_lookup_all_slugs_ms = {worst_lookup} (sampled; cap {SCAN_LOOKUP_CAP})");
     println!("note: a command today calls find_repo_any once, and each call is a");
     println!("      full walk of every root - so naming one repository costs as");
     println!("      much as rebuilding the whole wall.");
@@ -389,8 +397,8 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
     let idx_list_ms = t.elapsed().as_millis();
     let t = std::time::Instant::now();
     let mut idx_hits = 0usize;
-    for r in &idx_repos {
-        if repo_index::find(&roots, &r.slug()).0.is_some() {
+    for slug in &sample_slugs {
+        if repo_index::find(&roots, slug).0.is_some() {
             idx_hits += 1;
         }
     }
@@ -411,9 +419,11 @@ pub fn run_headless_scan_check(runs: u32, root: Option<String>) -> i32 {
 
     println!("--- indexed ---");
     println!(
-        "list={idx_list_ms}ms source={} refs={} | lookups={idx_lookup_ms}ms resolved={idx_hits}/{} | cached_list={idx_cached_ms}ms source={} refs={}",
+        "list={idx_list_ms}ms source={} refs={} | lookups={idx_lookup_ms}ms resolved={idx_hits}/{} sampled={}/{} | cached_list={idx_cached_ms}ms source={} refs={}",
         origin1.label(),
         idx_repos.len(),
+        sample_slugs.len(),
+        sample_slugs.len(),
         idx_repos.len(),
         origin2.label(),
         again.len()

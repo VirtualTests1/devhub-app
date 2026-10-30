@@ -149,15 +149,13 @@ jobs:
         working-directory: src-tauri
         run: cargo test --lib
 
-      # r33-D10: clippy is a merge gate now, not a thing someone remembers to
-      # run. It denies the correctness and suspicious groups — the lints that
-      # change behaviour — and reports style/complexity without failing. The
-      # tree measured 45 style/complexity warnings on 2026-10-30; they are
-      # deliberately not hidden behind `-D warnings` until the cleanup is done,
-      # and `pnpm rust:clippy` is the local entry point for that cleanup.
-      - name: cargo clippy（correctness + suspicious 视为错误）
+      # r34-D1 finished the cleanup that r33 started: the library now passes
+      # `-D warnings` (the 45 style/complexity warnings were fixed or given a
+      # recorded, narrow exception: too_many_arguments crate-wide, two large
+      # enums locally). A new warning is a red gate, not a report.
+      - name: cargo clippy（所有 warning 视为错误）
         working-directory: src-tauri
-        run: cargo clippy --lib -- -D clippy::correctness -D clippy::suspicious
+        run: cargo clippy --lib -- -D warnings
 
   lint:
     name: ESLint

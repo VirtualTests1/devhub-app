@@ -954,6 +954,57 @@ function checkLibRsCeiling() {
 }
 checkLibRsCeiling();
 
+// (b3b) — the two webview boundaries that are declared in JSON, not code.
+//
+// `capabilities/default.json` is the only place the page's IPC surface is
+// granted, and a capability set drifts silently: nothing fails when a broad
+// permission set is added back "to make the dialog work". Round 33 narrowed
+// opener from its default set (open-url + reveal-item-in-dir + default urls) to
+// open-url alone: the webview never calls reveal, and the reveal the app does
+// use is a Rust call the ACL does not gate. The CSP had the opposite problem -
+// `connect-src` named api.github.com/github.com from a version of the app whose
+// page never made an HTTP request; every GitHub call is a Rust `curl`
+// subprocess. Both are asserted here so neither can quietly grow back.
+function checkTauriBoundaries() {
+  const capFile = "src-tauri/capabilities/default.json";
+  const confFile = "src-tauri/tauri.conf.json";
+  if (!existsSync(capFile) || !existsSync(confFile)) {
+    record("tauri-boundaries", "FAIL", 0, "capabilities or tauri.conf.json is missing");
+    return;
+  }
+  const cap = read(capFile);
+  const conf = read(confFile);
+  const forbidden = [
+    "opener:default",
+    "opener:allow-open-path",
+    "opener:allow-reveal-item-in-dir",
+  ].filter((p) => cap.includes(`"${p}"`));
+  const openUrl =
+    cap.includes('"opener:allow-open-url"') && cap.includes('"opener:allow-default-urls"');
+  const cspMatch = /"csp"\s*:\s*"([^"]*)"/.exec(conf);
+  const csp = cspMatch ? cspMatch[1] : "";
+  const cspProblems = [];
+  if (!cspMatch) cspProblems.push("tauri.conf.json has no CSP");
+  if (!csp.includes("connect-src 'self'")) cspProblems.push("connect-src is not 'self'");
+  if (/connect-src[^;]*https:\/\//.test(csp)) {
+    cspProblems.push("connect-src names a remote origin");
+  }
+  const problems = [
+    ...forbidden.map((p) => `capability still grants ${p}`),
+    ...(openUrl ? [] : ["opener:allow-open-url + allow-default-urls are not both granted"]),
+    ...cspProblems,
+  ];
+  record(
+    "tauri-boundaries",
+    problems.length ? "FAIL" : "PASS",
+    problems.length,
+    problems.length
+      ? problems.join("; ")
+      : "opener grants open-url only (no page-side reveal/path opening); CSP connect-src is self-only",
+  );
+}
+checkTauriBoundaries();
+
 // (b4) — every map-shaped in-process cache must bound itself (r20-O2-3).
 //
 // Round 11's report and round 18's both recorded the same finding in different words:

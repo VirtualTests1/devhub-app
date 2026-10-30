@@ -39,6 +39,7 @@ mod path_guard;
 mod preview;
 mod proc;
 mod process_events;
+mod releases;
 mod repo_index;
 mod search;
 mod search_cmd;
@@ -4601,6 +4602,7 @@ pub fn run() {
             update_repo,
             repo_freshness,
             repo_freshness_many,
+            releases::repo_release,
             searchgrep::repo_grep,
             searchgrep::repo_grep_many,
             files::repo_files,

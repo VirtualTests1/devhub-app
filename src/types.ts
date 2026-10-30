@@ -260,6 +260,27 @@ export type FreshnessManyRow = {
   freshness: Freshness | null;
 };
 
+/**
+ * Latest published release for one repository (`repo_release`, r33-D6).
+ *
+ * `state: "none"` means GitHub answered "no published release"; `"error"` means
+ * the check did not produce an answer. They are separate badges on purpose.
+ * `checkedAt` is unix **seconds** (the backend's clock), and `None` when the
+ * error happened before a response.
+ */
+export type ReleaseInfo = {
+  slug: string;
+  state: "release" | "none" | "error";
+  tag: string | null;
+  name: string | null;
+  url: string | null;
+  publishedAt: string | null;
+  prerelease: boolean;
+  checkedAt: number | null;
+  fromCache: boolean;
+  error: string | null;
+};
+
 /** One outdated dependency from `check_dependencies`. */
 export type Dependency = {
   name: string;

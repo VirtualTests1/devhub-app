@@ -2109,4 +2109,11 @@ export const EN_VALUES = [
   "{n} more lines not shown",
   "{n} more repositories not shown",
   "{n} repositories were over the per-request ceiling and were not searched.",
+  "Latest release",
+  "Read this repository's latest Release from GitHub (read-only, no download)",
+  "Open {tag} in the browser",
+  "pre-release",
+  "cached",
+  "No published Release",
+  "Could not read the release: {msg}",
 ] as const;

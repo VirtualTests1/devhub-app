@@ -7,11 +7,13 @@ import {
   LoaderCircle,
   PackagePlus,
   RefreshCw,
+  Tag,
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "./Toast";
 import { fmtRelative } from "../lib/format";
 import { messageOf } from "../lib/report-error";
+import { openHttpUrl } from "../lib/external-url";
 import { useI18n } from "../lib/useI18n";
 import {
   LAYER_LABEL,
@@ -19,6 +21,7 @@ import {
   type InstallPlan,
   type LaunchStarted,
   type LaunchStep,
+  type ReleaseInfo,
   type RepoDetail,
   type UpdateOutcome,
 } from "../types";
@@ -77,6 +80,8 @@ export function RepoSyncPanel({
   const [outcome, setOutcome] = useState<UpdateOutcome | null>(null);
   const [lines, setLines] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [release, setRelease] = useState<ReleaseInfo | null>(null);
+  const [releaseBusy, setReleaseBusy] = useState(false);
   const [plan, setPlan] = useState<InstallPlan | null>(null);
   const [planLoaded, setPlanLoaded] = useState(false);
   const [installBusy, setInstallBusy] = useState(false);
@@ -133,6 +138,28 @@ export function RepoSyncPanel({
       if (aliveRef.current) fail(t("sync.freshnessFailed", { msg: messageOf(e) }), () => void checkFreshness(true));
     } finally {
       if (aliveRef.current) setFreshBusy(false);
+    }
+  };
+
+  /**
+   * 最新发布 is a read of GitHub's release feed, not an update: it names the tag
+   * and opens the page. It is deliberately not fetched on mount — the panel is
+   * already several network calls and this one is the least urgent.
+   */
+  const checkRelease = async (force: boolean) => {
+    setReleaseBusy(true);
+    setError(null);
+    try {
+      const r = await invoke<ReleaseInfo>("repo_release", { slug, force });
+      if (!aliveRef.current) return;
+      setRelease(r);
+      if (r.error) fail(r.error, () => void checkRelease(true));
+    } catch (e) {
+      if (aliveRef.current) {
+        fail(t("sync.releaseFailed", { msg: messageOf(e) }), () => void checkRelease(true));
+      }
+    } finally {
+      if (aliveRef.current) setReleaseBusy(false);
     }
   };
 
@@ -263,6 +290,37 @@ export function RepoSyncPanel({
             {f.tone === "ok" && <CircleCheck className="h-2.5 w-2.5" />}
             {f.tone === "warn" && <TriangleAlert className="h-2.5 w-2.5" />}
             {f.label} · {fmtRelative(fresh.checkedAt)}
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={() => void checkRelease(false)}
+          disabled={releaseBusy}
+          title={t("sync.releaseTitle")}
+          className="flex items-center gap-1.5 rounded-lg border border-border-weak px-2 py-1 text-caption text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-40"
+        >
+          {releaseBusy ? <LoaderCircle className="h-3 w-3 animate-spin" /> : <Tag className="h-3 w-3" />}
+          {t("sync.release")}
+        </button>
+
+        {release?.state === "release" && release.url && (
+          <button
+            type="button"
+            onClick={() => void openHttpUrl(release.url!)}
+            title={t("sync.releaseOpen", { tag: release.tag ?? "" })}
+            className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-caption text-primary transition-colors hover:bg-primary/20"
+          >
+            <Tag className="h-2.5 w-2.5" />
+            {release.tag}
+            {release.prerelease ? ` · ${t("sync.releasePrerelease")}` : ""}
+            {release.publishedAt ? ` · ${new Date(release.publishedAt).toLocaleDateString()}` : ""}
+            {release.fromCache ? ` · ${t("sync.releaseCached")}` : ""}
+          </button>
+        )}
+        {release?.state === "none" && (
+          <span className="rounded-full bg-muted px-2 py-0.5 text-caption text-muted-foreground">
+            {t("sync.releaseNone")}
           </span>
         )}
 

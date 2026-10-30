@@ -2333,6 +2333,13 @@ const ZH = {
   "grep.batch.hiddenHits": "另有 {n} 行未显示",
   "grep.batch.hiddenGroups": "另有 {n} 个仓库的结果未显示",
   "grep.batch.skippedRepos": "另有 {n} 个仓库超出单次上限，未参与本次搜索。",
+  "sync.release": "最新发布",
+  "sync.releaseTitle": "查询 GitHub 上该仓库的最新 Release（只读，不下载）",
+  "sync.releaseOpen": "在浏览器打开 {tag}",
+  "sync.releasePrerelease": "预发布",
+  "sync.releaseCached": "缓存",
+  "sync.releaseNone": "没有已发布的 Release",
+  "sync.releaseFailed": "读取发布失败：{msg}",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

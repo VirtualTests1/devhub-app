@@ -284,12 +284,15 @@ info.push(
 // their 26 dictionary pairs. Measured 1,178,594 / 81,345 / 206,852 / 1,259,939 /
 // 687,484 B. The initial-JS growth (+4,141 B) is mostly the default-locale
 // dictionary, which must stay synchronous; every new screen is in a lazy chunk.
-// Each ceiling is the measurement + 1 KB cross-machine headroom.
-const JS_TOTAL_MAX_BYTES = 1_179_618; // measured 1,178,594 B + 1 KB headroom
-const CSS_TOTAL_MAX_BYTES = 82_369; // measured 81,345 B on 2026-10-30 (r33) + 1 KB headroom
+// r34 (2026-10-30): the health card, secret-scan dialog, search cancel/progress
+// and launch-output restore. Measured 1,196,586 / 81,554 / 206,852 / 1,278,140 /
+// 690,900 B; the dialog and card are lazy, so the initial growth is the dictionary
+// again. Each ceiling is the measurement + 1 KB cross-machine headroom.
+const JS_TOTAL_MAX_BYTES = 1_197_610; // measured 1,196,586 B + 1 KB headroom
+const CSS_TOTAL_MAX_BYTES = 82_369; // measured 81,554 B on 2026-10-30 (r34) + 1 KB headroom
 const SINGLE_CHUNK_MAX_BYTES = 207_876; // measured max 206,852 B (vendor-react-dom) + 1 KB headroom
-const JS_CSS_TOTAL_MAX_BYTES = 1_260_963; // measured 1,259,939 B + 1 KB headroom
-const INITIAL_JS_MAX_BYTES = 688_508; // measured 687,484 B after r33 + 1 KB headroom
+const JS_CSS_TOTAL_MAX_BYTES = 1_279_164; // measured 1,278,140 B + 1 KB headroom
+const INITIAL_JS_MAX_BYTES = 691_924; // measured 690,900 B after r34 + 1 KB headroom
 
 // A chunk is a "single chunk" for the per-file ceiling only if it is actually
 // loaded as one unit; sourcemaps are not, so they are excluded above.

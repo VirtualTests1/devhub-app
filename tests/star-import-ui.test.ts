@@ -105,7 +105,7 @@ test("入口: 添加页挂载面板，注册表与命令数下限同步", () => 
   // register_deeplink 后是 84，r21-N1b-2 接 check_dependencies（依赖更新面板直调）后是 85，
   // r21-N4-2 接 net_status（状态条实时连通）后是 86。
   assert.ok(
-    COMMANDS.includes("const INVOKED_FLOOR = 103;") && COMMANDS.includes("const REGISTERED_FLOOR = 103;"),
+    COMMANDS.includes("const INVOKED_FLOOR = 107;") && COMMANDS.includes("const REGISTERED_FLOOR = 107;"),
     "floor 已抬到实测值 103/103（r21 的六条接线之后，r33 又加了 repo_grep_many / repo_release / license_overview；理由写在 check-commands.mjs 的注释里）",
   );
 });

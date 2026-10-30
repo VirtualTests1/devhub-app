@@ -135,13 +135,13 @@ test("词表: 21 键双语齐、每键都有字面量调用点", () => {
   assert.ok(!/[\u4e00-\u9fff]/.test(code), "代码行里没有裸中文字面量——都走 t()");
 });
 
-test("IPC 同步: project_has_compose 的封面已撤，floor 抬到实测值 103", () => {
+test("IPC 同步: project_has_compose 的封面已撤，floor 抬到实测值 107", () => {
   assert.ok(
     !COMMANDS.includes('project_has_compose: "R19-N1'),
     "接了调用者的命令不能再躺在 allowlist 里",
   );
   assert.ok(
-    COMMANDS.includes("const INVOKED_FLOOR = 103;") && COMMANDS.includes("const REGISTERED_FLOOR = 103;"),
-    "floor = live：r21 接线后 86/87；r33 增加 repo_grep_many / repo_release / license_overview 后实测 103/103（抬升理由写在 check-commands.mjs 的注释里）",
+    COMMANDS.includes("const INVOKED_FLOOR = 107;") && COMMANDS.includes("const REGISTERED_FLOOR = 107;"),
+    "floor = live：r21 接线后 86/87；r34 四条新命令后 107/107；r34 再加 cancel_repo_grep / repo_health_overview / launch_output / repo_secret_scan 后实测 107/107（抬升理由写在 check-commands.mjs 的注释里）",
   );
 });

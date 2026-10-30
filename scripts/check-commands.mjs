@@ -134,11 +134,15 @@ process.chdir(dirname(dirname(fileURLToPath(import.meta.url))));
 // Raised 88/89 -> 103/103 on 2026-10-30 (r33): the round added
 // `searchgrep::repo_grep_many` (all-project search dialog),
 // `releases::repo_release` (sync panel) and `licenses::license_overview`
-// (records page), each invoked by exactly one surface. The floors follow the
-// live count, per the rule above; deleting one of these is a deliberate act
-// that must edit this line in the same commit.
-const INVOKED_FLOOR = 103;
-const REGISTERED_FLOOR = 103;
+// (records page), each invoked by exactly one surface.
+// Raised 103 -> 107 on 2026-10-30 (r34): `searchgrep::cancel_repo_grep` (the
+// search stop button), `health::repo_health_overview` (records health card),
+// `launch::launch_output` (launch dialog restore) and
+// `secrets::repo_secret_scan` (secret scan dialog). The floors follow the live
+// count, per the rule above; deleting one of these must edit this line in the
+// same commit.
+const INVOKED_FLOOR = 107;
+const REGISTERED_FLOOR = 107;
 
 // ---------------------------------------------------------------------------
 // Commands with no frontend caller, and the written reason each is allowed to

@@ -219,8 +219,8 @@ test("IPC 契约: register_deeplink 有了调用者，allowlist 条目已删、f
     "allowlist 里留着它会触发 staleAllowlist（有调用者还占着掩护）",
   );
   assert.ok(
-    COMMANDS.includes("const INVOKED_FLOOR = 103;") && COMMANDS.includes("const REGISTERED_FLOOR = 103;"),
-    "floor = live：r21 收口 86/87；r33 三条新命令后 103/103（理由见 check-commands.mjs）",
+    COMMANDS.includes("const INVOKED_FLOOR = 107;") && COMMANDS.includes("const REGISTERED_FLOOR = 107;"),
+    "floor = live：r21 收口 86/87；r34 四条新命令后 107/107（理由见 check-commands.mjs）",
   );
   // 反向：调用点确实在 src/ 里（check-commands 的扫描就是按这个形状找的）。
   assert.ok(

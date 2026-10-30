@@ -24,17 +24,26 @@
 
 $ErrorActionPreference = 'Stop'
 
+# `${env:ProgramFiles(x86)}` (and, in some automation shells, ProgramFiles) can be
+# absent even though the literal directory exists. Resolve both once: interpolating
+# an empty variable produces a relative root like "\Windows Kits\10\Lib", which
+# never resolves - a machine that can build being reported as one that cannot.
+$programFiles = $env:ProgramFiles
+if ([string]::IsNullOrWhiteSpace($programFiles)) { $programFiles = 'C:\Program Files' }
+$programFilesX86 = ${env:ProgramFiles(x86)}
+if ([string]::IsNullOrWhiteSpace($programFilesX86)) { $programFilesX86 = 'C:\Program Files (x86)' }
+
 # Machine-local extra VS roots stay out of the repository: create env.local.ps1
 # next to this file (it is git-ignored) with e.g.
-#   $env:DEVHUB_VS_EXTRA_ROOT = 'D:\Tools\VisualStudio'
+#   $env:DEVHUB_VS_EXTRA_ROOT = '<path-to-visual-studio>'
 $localEnv = Join-Path $PSScriptRoot 'env.local.ps1'
 if (Test-Path -LiteralPath $localEnv) { . $localEnv }
 
 function Get-DevHubMsvcToolset {
     $extraRoots = @($env:DEVHUB_VS_EXTRA_ROOT) | Where-Object { $_ }
     $searchRoots = @(
-        "$env:ProgramFiles\Microsoft Visual Studio",
-        "${env:ProgramFiles(x86)}\Microsoft Visual Studio"
+        (Join-Path $programFiles 'Microsoft Visual Studio'),
+        (Join-Path $programFilesX86 'Microsoft Visual Studio')
     ) + $extraRoots | Where-Object { Test-Path -LiteralPath $_ }
 
     # find.exe honours -LiteralPath semantics (no globbing), so "(x86)" is safe.
@@ -63,15 +72,10 @@ function Get-DevHubMsvcToolset {
 }
 
 function Get-DevHubWindowsSdk {
-    # `${env:ProgramFiles(x86)}` is absent from some hosted/automation shells
-    # (observed 2026-10-30: every other machine variable is intact, this one is
-    # simply missing, and the literal directory exists). An empty variable would
-    # yield the relative root "\Windows Kits\10\Lib", which never resolves and
-    # reads as "no SDK installed" - a machine that can build being reported as one
-    # that cannot. Fall back to the literal 64-bit path when the variable is gone.
-    $pfx86 = ${env:ProgramFiles(x86)}
-    if ([string]::IsNullOrWhiteSpace($pfx86)) { $pfx86 = 'C:\Program Files (x86)' }
-    $libRoot = Join-Path $pfx86 'Windows Kits\10\Lib'
+    # The root was resolved once at script scope (see $programFilesX86): an empty
+    # variable would yield the relative root "\Windows Kits\10\Lib", which never
+    # resolves and reads as "no SDK installed".
+    $libRoot = Join-Path $programFilesX86 'Windows Kits\10\Lib'
     if (-not (Test-Path -LiteralPath $libRoot)) { return $null }
     $versions = Get-ChildItem -LiteralPath $libRoot -Directory -ErrorAction SilentlyContinue |
         Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'ucrt\x64\ucrt.lib') }
@@ -89,7 +93,10 @@ if (-not $sdk) {
     throw "No usable Windows SDK found (needs Lib\<ver>\ucrt\x64\ucrt.lib). Install the Windows SDK."
 }
 
-$sdkRoot = "${env:ProgramFiles(x86)}\Windows Kits\10"
+# Derive the root from the directory actually found. Re-reading the environment
+# variable here is what made the fallback above cosmetic: the SDK was found under
+# C:\Program Files (x86) while INCLUDE/LIB pointed at "\Windows Kits\10".
+$sdkRoot = $sdk.Parent.Parent.FullName
 $sdkVer = $sdk.Name
 $binHost = Join-Path $msvc.Root 'bin\Hostx64\x64'
 $sdkBin = Join-Path $sdkRoot "bin\$sdkVer\x64"

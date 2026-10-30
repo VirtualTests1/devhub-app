@@ -157,8 +157,14 @@ test("bundle diet 3: src/lib/i18n.ts 体积棘轮（抬高上限必须在提交�
   //   i18n-en.ts 83,742 B (values only)
   // Each ceiling leaves ~2 KB for a normal round; a second key table still
   // fails bundle diet 1/2 before size is considered.
-  const I18N_MAX_BYTES = 152_000;
-  const EN_MAX_BYTES = 86_000;
+  // 152_000 -> 156_000 on 2026-10-30 (r33): cross-repo search, release
+  // awareness and the license overview added 26 paired keys (measured
+  // 153,303 B). Every one is a literal `t("…")` call site; bundle diet 1 still
+  // proves there is no second key table.
+  const I18N_MAX_BYTES = 156_000;
+  // 86_000 -> 88_000 on 2026-10-30 (r33): the same 26 paired keys, English side
+  // measured 86,049 B. Values only; no lookup logic lives here.
+  const EN_MAX_BYTES = 88_000;
   assert.ok(
     RAW_BYTES <= I18N_MAX_BYTES,
     `${I18N_PATH} 现在 ${RAW_BYTES} B，超过棘轮 ${I18N_MAX_BYTES} B（r32-O1 拆分后实测 149,543 B）。正当增长就抬高并写明理由；否则先查第二张键表`,

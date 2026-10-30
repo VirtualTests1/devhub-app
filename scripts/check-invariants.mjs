@@ -1662,8 +1662,15 @@ checkSbomGenerator();
  * say in the commit message which review approved the wider value.
  */
 const SECURITY_BASELINE = {
-  /** `connect-src` tokens. Never `*`; every host must be named here. */
-  connectSrc: ["'self'", "https://api.github.com", "https://github.com"],
+  /**
+   * `connect-src` tokens. Never `*`; every host must be named here.
+   *
+   * r33-D3 narrowed this from `['self', api.github.com, github.com]`: every GitHub
+   * request is a Rust `curl` subprocess, so the page never needed either origin.
+   * The `tauri-boundaries` row fails if a remote origin comes back; this list is
+   * the second lock on the same door.
+   */
+  connectSrc: ["'self'"],
   /**
    * `assetProtocol.scope`, exactly the four cached-cover globs. Any other entry
    * — and any repo-root / global shape — is a widening.
@@ -1839,7 +1846,7 @@ function runSecuritySelftest() {
     const base = {
       app: {
         security: {
-          csp: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset:; connect-src 'self' https://api.github.com https://github.com",
+          csp: "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: asset:; connect-src 'self'",
           assetProtocol: { enable: true, scope: coverScope },
         },
       },

@@ -148,7 +148,7 @@ test("IPC 同步: docker_status 的封面已撤，floor 抬到实测值", () => 
   const registered = /const REGISTERED_FLOOR = (\d+);/.exec(COMMANDS);
   assert.ok(invoked && registered, "两个 floor 常量都还在");
   assert.ok(Number(invoked[1]) >= 81, `invoked floor ${invoked[1]} 至少要是接线后的实测值 81`);
-  assert.equal(registered[1], "89", "registered 侧 = live：r21-N4-1 新增 net_status（invoked 侧仍 85，N4-2 接线）");
+  assert.equal(registered[1], "103", "registered 侧 = live：r21 收口 87；r33 加 repo_grep_many / repo_release / license_overview 后 103");
 });
 
 test("契约: TS 类型字段与 Rust serde rename 两端一致", () => {

@@ -131,8 +131,14 @@ process.chdir(dirname(dirname(fileURLToPath(import.meta.url))));
 // Raised 85 -> 86 on 2026-10-21 by r21-N4-2: the strip now calls
 // `invoke<unknown>("net_status", { force })`, so the bridge entry below is gone
 // and the invoked floor follows the live count. Registered stays 87.
-const INVOKED_FLOOR = 88;
-const REGISTERED_FLOOR = 89;
+// Raised 88/89 -> 103/103 on 2026-10-30 (r33): the round added
+// `searchgrep::repo_grep_many` (all-project search dialog),
+// `releases::repo_release` (sync panel) and `licenses::license_overview`
+// (records page), each invoked by exactly one surface. The floors follow the
+// live count, per the rule above; deleting one of these is a deliberate act
+// that must edit this line in the same commit.
+const INVOKED_FLOOR = 103;
+const REGISTERED_FLOOR = 103;
 
 // ---------------------------------------------------------------------------
 // Commands with no frontend caller, and the written reason each is allowed to

@@ -1010,18 +1010,18 @@ test("tools/call devhub_repo_commits：真实 git log、无 .git 与错误 slug 
     request(3, "tools/call", { name: "devhub_repo_commits", arguments: { slug: "alpha" } }),
     request(4, "tools/call", { name: "devhub_repo_commits", arguments: { slug: "no/such/repo" } }),
   ]);
-  const ok = structured(frames[1]);
+  const ok = structured(at(frames, 1));
   assert.equal(ok.state, "ok");
   const commits = ok.commits as Json[];
   assert.equal(commits.length, 1);
-  assert.equal(commits[0].subject, "fixture subject");
-  assert.equal(commits[0].author, "Fixture");
-  assert.match(String(commits[0].hash), /^[0-9a-f]{40}$/);
-  assert.match(String(commits[0].date), /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(at(commits, 0).subject, "fixture subject");
+  assert.equal(at(commits, 0).author, "Fixture");
+  assert.match(String(at(commits, 0).hash), /^[0-9a-f]{40}$/);
+  assert.match(String(at(commits, 0).date), /^\d{4}-\d{2}-\d{2}T/);
 
-  assert.equal(structured(frames[2]).state, "no-git", "a cloned archive must not look empty");
-  assert.equal(structured(frames[2]).commits.length, 0);
-  assert.equal(errorOf(frames[3]).code, -32602, "an unknown slug is a params error");
+  assert.equal(structured(at(frames, 2)).state, "no-git", "a cloned archive must not look empty");
+  assert.equal((structured(at(frames, 2)).commits as Json[]).length, 0);
+  assert.equal(errorOf(at(frames, 3)).code, -32602, "an unknown slug is a params error");
 });
 
 test("tools/call devhub_search_local：字面量搜索、忽略目录、单仓库范围与非法正则", () => {
@@ -1040,16 +1040,16 @@ test("tools/call devhub_search_local：字面量搜索、忽略目录、单仓�
       arguments: { query: "[", regex: true },
     }),
   ]);
-  const one = structured(frames[1]);
+  const one = structured(at(frames, 1));
   assert.equal(one.scope, "one");
   assert.equal(one.count, 1);
   const hits = one.hits as Json[];
-  assert.equal(hits[0].file, "src/lib/util.ts");
-  assert.match(String(hits[0].content), /export const util/);
+  assert.equal(at(hits, 0).file, "src/lib/util.ts");
+  assert.match(String(at(hits, 0).content), /export const util/);
 
-  const all = structured(frames[2]);
+  const all = structured(at(frames, 2));
   assert.equal(all.count, 0, "node_modules must be skipped, not merely absent");
   assert.equal(all.truncated, false);
 
-  assert.equal(errorOf(frames[3]).code, -32602, "an invalid regex is a params error");
+  assert.equal(errorOf(at(frames, 3)).code, -32602, "an invalid regex is a params error");
 });

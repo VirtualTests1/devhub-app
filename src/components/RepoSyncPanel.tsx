@@ -244,6 +244,7 @@ export function RepoSyncPanel({
   };
 
   const f = fresh ? freshnessChip(fresh.state) : null;
+  const releaseUrl = release?.state === "release" ? release.url : null;
 
   return (
     <div className="mt-4 rounded-lg border border-border-weak bg-background p-3">
@@ -304,10 +305,10 @@ export function RepoSyncPanel({
           {t("sync.release")}
         </button>
 
-        {release?.state === "release" && release.url && (
+        {release && releaseUrl && (
           <button
             type="button"
-            onClick={() => void openHttpUrl(release.url!)}
+            onClick={() => void openHttpUrl(releaseUrl)}
             title={t("sync.releaseOpen", { tag: release.tag ?? "" })}
             className="flex items-center gap-1 rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-caption text-primary transition-colors hover:bg-primary/20"
           >

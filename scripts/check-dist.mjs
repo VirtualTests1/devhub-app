@@ -280,11 +280,16 @@ info.push(
 // this round's four new UI surfaces (queue priority/history, Markdown export,
 // commit history). The ceiling follows the measurement; the initial-JS number
 // is the one that actually describes what a launch downloads.
-const JS_TOTAL_MAX_BYTES = 1_159_753; // measured 1,158,729 B + 1 KB cross-machine headroom
-const CSS_TOTAL_MAX_BYTES = 81_204; // measured 80,180 B on 2026-10-29 (r32) + 1 KB headroom
-const SINGLE_CHUNK_MAX_BYTES = 207_876; // measured max 206,852 B (vendor-react-dom, i18n split) + 1 KB headroom
-const JS_CSS_TOTAL_MAX_BYTES = 1_239_933; // measured 1,238,909 B + 1 KB cross-machine headroom
-const INITIAL_JS_MAX_BYTES = 683_343; // measured 682,319 B after the i18n split + 1 KB headroom
+// r33 (2026-10-30): cross-repo search, the release row, the license overview and
+// their 26 dictionary pairs. Measured 1,178,594 / 81,345 / 206,852 / 1,259,939 /
+// 687,484 B. The initial-JS growth (+4,141 B) is mostly the default-locale
+// dictionary, which must stay synchronous; every new screen is in a lazy chunk.
+// Each ceiling is the measurement + 1 KB cross-machine headroom.
+const JS_TOTAL_MAX_BYTES = 1_179_618; // measured 1,178,594 B + 1 KB headroom
+const CSS_TOTAL_MAX_BYTES = 82_369; // measured 81,345 B on 2026-10-30 (r33) + 1 KB headroom
+const SINGLE_CHUNK_MAX_BYTES = 207_876; // measured max 206,852 B (vendor-react-dom) + 1 KB headroom
+const JS_CSS_TOTAL_MAX_BYTES = 1_260_963; // measured 1,259,939 B + 1 KB headroom
+const INITIAL_JS_MAX_BYTES = 688_508; // measured 687,484 B after r33 + 1 KB headroom
 
 // A chunk is a "single chunk" for the per-file ceiling only if it is actually
 // loaded as one unit; sourcemaps are not, so they are excluded above.

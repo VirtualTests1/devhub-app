@@ -42,8 +42,8 @@ test("IPC: check_dependencies 直调、封面已撤、floor 抬到 86", () => {
     "接了直调调用者的命令不能再躺在 allowlist 里——stale 检查也会这么判",
   );
   assert.ok(
-    COMMANDS.includes("const INVOKED_FLOOR = 88;") && COMMANDS.includes("const REGISTERED_FLOOR = 89;"),
-    "floor = live：N1b-2 直调后实测 85，N4-2 接 net_status 后 86/87（registered 由 N4-1 抬到 87）",
+    COMMANDS.includes("const INVOKED_FLOOR = 103;") && COMMANDS.includes("const REGISTERED_FLOOR = 103;"),
+    "floor = live：r21 收口 86/87；r33 三条新命令后 103/103（理由见 check-commands.mjs）",
   );
 });
 

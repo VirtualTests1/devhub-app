@@ -7,7 +7,7 @@
 //! Layer order, each with its own failure mode:
 //!   1. Direct                  - system git + system DNS
 //!   2. IP-pinned               - public DNS resolves the IP, git keeps the real
-//!                                hostname + SNI, so certificate validation STAYS ON
+//!      hostname + SNI, so certificate validation STAYS ON
 //!   3. Local proxy             - auto-discovered (e.g. Watt Toolkit on 26501)
 //!   4. Mirror                  - user-replaceable, always announced in the UI
 //!
@@ -95,7 +95,7 @@ impl RepoRef {
 pub(crate) fn base64_encode(input: &[u8]) -> String {
     const ALPHABET: &[u8; 64] =
         b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(input.len().div_ceil(3) * 4);
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as u32;
         let b1 = *chunk.get(1).unwrap_or(&0) as u32;
@@ -952,9 +952,20 @@ fn git_version(git: &Path) -> Option<String> {
 ///
 /// This is the single source of truth for the port block, which is why port
 /// allocation cannot drift: it is stored once, here, and never duplicated.
+/// Bumped when a marker field's meaning changes in a way an older reader would
+/// get wrong. A file without the field is schema 1 (written before versioning).
+pub(crate) const CURRENT_MARKER_SCHEMA: u32 = 2;
+
+fn legacy_marker_schema() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Marker {
+    /// Schema of the file this value came from; new writes carry the current one.
+    #[serde(default = "legacy_marker_schema")]
+    pub schema_version: u32,
     #[serde(default)]
     pub slug: String,
     #[serde(default)]
@@ -1010,6 +1021,10 @@ pub struct Marker {
     /// does not silently switch the user back to the default branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
+    /// Fields written by a newer build; carried through verbatim. See the same
+    /// field on `AppConfig` for why dropping them is not acceptable.
+    #[serde(default, flatten)]
+    pub extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 pub(crate) fn marker_path(repo: &Path) -> PathBuf {
@@ -1031,6 +1046,7 @@ pub fn read_marker(repo: &Path) -> Option<Marker> {
 /// rebuilt the marker from `Marker::default()` — silently resetting `slug`,
 /// `port_base`/`services` (the block that must never drift, 需求 8.7) and the
 /// confirmed launch command. The distinction is the whole point of this enum.
+#[allow(clippy::large_enum_variant)] // the Valid(Marker) payload is the point; every caller matches on it
 pub(crate) enum MarkerFile {
     /// No file. A freshly cloned repository before `finish()` writes one.
     Absent,
@@ -1079,6 +1095,12 @@ where
 {
     let path = marker_path(repo);
     let mut marker = match read_marker_strict(repo)? {
+        MarkerFile::Valid(m) if m.schema_version > CURRENT_MARKER_SCHEMA => {
+            return Err(format!(
+                "暂存目录的 .devhub.json 由更新版本写入（schema {} > {}），已取消写入以免丢失未知字段；请使用写入它的版本。",
+                m.schema_version, CURRENT_MARKER_SCHEMA
+            ))
+        }
         MarkerFile::Valid(m) => m,
         MarkerFile::Absent => Marker::default(),
         MarkerFile::Unreadable(e) => {
@@ -1102,6 +1124,7 @@ where
         }
     };
     mutate(&mut marker);
+    marker.schema_version = CURRENT_MARKER_SCHEMA;
     let text = serde_json::to_string_pretty(&marker)
         .map_err(|e| format!("序列化 .devhub.json 失败: {e}"))?;
     // Atomic replace, the way the app config already writes itself (`save_config`:
@@ -1543,7 +1566,7 @@ pub fn claim_port_block(roots: &[PathBuf], base: u16, except: &Path) -> Result<P
     if base < POOL_LOW || base > top {
         return Err(format!("端口段要在 {POOL_LOW}–{top} 之间"));
     }
-    if (base - POOL_LOW) % BLOCK_SIZE != 0 {
+    if !(base - POOL_LOW).is_multiple_of(BLOCK_SIZE) {
         return Err(format!(
             "端口段要按 {BLOCK_SIZE} 对齐，例如 {POOL_LOW} 或 {}",
             POOL_LOW + BLOCK_SIZE
@@ -4263,7 +4286,7 @@ impl Downloader {
             .iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-        let marker = Marker {
+        let mut marker = Marker {
             slug: slug.to_string(),
             url: url.to_string(),
             cloned_at: chrono::Utc::now().to_rfc3339(),
@@ -4272,6 +4295,15 @@ impl Downloader {
             branch: branch.map(str::to_string),
             ..Default::default()
         };
+        if let Some(old) = read_marker(target) {
+            if old.schema_version > CURRENT_MARKER_SCHEMA {
+                return Err(DownloadError::Io(format!(
+                    "目标目录的 .devhub.json 由更新版本写入（schema {} > {}），已取消写入以免丢失未知字段",
+                    old.schema_version, CURRENT_MARKER_SCHEMA
+                )));
+            }
+        }
+        marker.schema_version = CURRENT_MARKER_SCHEMA;
         let text = serde_json::to_string_pretty(&marker)
             .map_err(|e| DownloadError::Io(format!("序列化 .devhub.json 失败: {e}")))?;
         // Atomic, like every other marker write (`update_marker`): this is the
@@ -6001,6 +6033,54 @@ mod tests {
         let text = err.to_string();
         assert!(text.contains("全部失败"), "{text}");
         assert!(text.contains("建议："), "a classified failure must carry one next step: {text}");
+    }
+
+    #[test]
+    fn an_unversioned_marker_is_schema_one_and_unknown_fields_survive_a_write() {
+        let d = std::env::temp_dir().join(format!("devhub-marker-schema-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(
+            marker_path(&d),
+            r#"{"slug":"github.com/acme/tool","portBase":20000,"futureThing":{"x":1}}"#,
+        )
+        .unwrap();
+
+        let old = read_marker(&d).expect("an old marker must parse");
+        assert_eq!(old.schema_version, 1);
+        assert_eq!(
+            old.extra.get("futureThing").and_then(|v| v.get("x")),
+            Some(&serde_json::json!(1))
+        );
+
+        update_marker(&d, |m| m.description = Some("kept".into())).unwrap();
+        let after = read_marker(&d).expect("marker after update");
+        assert_eq!(after.schema_version, CURRENT_MARKER_SCHEMA);
+        assert_eq!(after.description.as_deref(), Some("kept"));
+        assert_eq!(
+            after.extra.get("futureThing").and_then(|v| v.get("x")),
+            Some(&serde_json::json!(1)),
+            "a newer field must survive an older build's edit"
+        );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn a_marker_from_a_newer_schema_refuses_an_edit_and_keeps_the_bytes() {
+        let d = std::env::temp_dir().join(format!("devhub-marker-future-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let text = r#"{"schemaVersion":99,"slug":"github.com/acme/future","futureField":"keep"}"#;
+        std::fs::write(marker_path(&d), text).unwrap();
+
+        let err = update_marker(&d, |m| m.description = Some("nope".into())).unwrap_err();
+        assert!(err.contains("更新版本"), "{err}");
+        assert_eq!(
+            std::fs::read_to_string(marker_path(&d)).unwrap(),
+            text,
+            "a refused write must not touch the file"
+        );
+        let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]

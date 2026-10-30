@@ -241,6 +241,19 @@ export function LaunchDialog({ slug, onClose }: { slug: string; onClose: () => v
     // spinner waiting on registry reads. (Named, not `t`: `t` is the translator.)
     const extrasTimer = window.setTimeout(() => void loadExtras(), 0);
     void pollProcs();
+    // The last run's output survives the panel closing (it lives in memory for
+    // this session). Seed it only if this panel has not started a new run yet;
+    // a real line that arrived first must win.
+    void invoke<string[]>("launch_output", { slug })
+      .then((lines) => {
+        if (!aliveRef.current || lines.length === 0) return;
+        setOutput((current) =>
+          current.length > 0
+            ? current
+            : [t("launch.restored"), ...lines].slice(-400),
+        );
+      })
+      .catch(() => undefined);
     useCustomize.getState().recordUsage(`repo:${slug}`);
     const un = listen<ProgressEvent>("launch://progress", (ev) => {
       const { stage, message } = ev.payload;

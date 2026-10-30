@@ -281,6 +281,57 @@ export type ReleaseInfo = {
   error: string | null;
 };
 
+/** One local health issue from `repo_health_overview` (r34-D5). */
+export type HealthIssue = {
+  /** Stable code (`marker`, `no-git`, `dirty`, `detached`, ...). */
+  code: string;
+  severity: "error" | "warn" | "info";
+  detail: string | null;
+};
+
+export type HealthRow = {
+  slug: string;
+  path: string;
+  markerState: string;
+  hasGit: boolean;
+  branch: string | null;
+  detached: boolean;
+  upstream: string | null;
+  dirty: number;
+  hasReadme: boolean;
+  hasLaunch: boolean;
+  venvState: string;
+  issues: HealthIssue[];
+};
+
+export type HealthOverview = {
+  rows: HealthRow[];
+  scanned: number;
+  capped: boolean;
+  elapsedMs: number;
+};
+
+/** One redacted secret-hygiene hit from `repo_secret_scan` (r34-D7). */
+export type SecretHit = {
+  file: string;
+  line: number;
+  kind: string;
+  /** Masked by the backend; never the full credential. */
+  preview: string;
+};
+
+export type SecretReport = {
+  slug: string;
+  root: string;
+  hits: SecretHit[];
+  filesScanned: number;
+  filesSkipped: number;
+  truncated: boolean;
+  timedOut: boolean;
+  elapsedMs: number;
+  error: string | null;
+};
+
 /** One outdated dependency from `check_dependencies`. */
 export type Dependency = {
   name: string;

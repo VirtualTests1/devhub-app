@@ -312,6 +312,7 @@ export const ELEMENTS: ElementDef[] = [
   { id: "records-stats-panel", label: "记录：统计洞察面板", group: "记录页" },
   { id: "records-storage-overview", label: "记录：存储概览", group: "记录页" },
   { id: "records-license-overview", label: "记录：许可证概览", group: "记录页" },
+  { id: "records-health-overview", label: "记录：健康总览", group: "记录页" },
   { id: "settings-row-search-route", label: "设置：搜索链路", group: "设置页" },
   { id: "settings-row-download-route", label: "设置：下载链路", group: "设置页" },
   { id: "settings-row-clone-strategy", label: "设置：克隆深度策略", group: "设置页" },

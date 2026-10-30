@@ -18,6 +18,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  ShieldAlert,
   SquareArrowOutUpRight,
   SquareCheckBig,
   SquareStop,
@@ -249,6 +250,9 @@ const WallViewDialog = lazy(() =>
 const CrossRepoGrepDialog = lazy(() =>
   import("../dialogs/CrossRepoGrepDialog").then((m) => ({ default: m.CrossRepoGrepDialog })),
 );
+const SecretScanDialog = lazy(() =>
+  import("../dialogs/SecretScanDialog").then((m) => ({ default: m.SecretScanDialog })),
+);
 
 /**
  * Fetch the card dialogs after first paint, not during it. A fixed 1.5 s timer rather
@@ -357,6 +361,7 @@ export function ProjectsView({
   // 「在项目中搜索」对话框（r21-N1-1）：与诊断同款的按-slug 挂载，卡片给它 root。
   const [grepSlug, setGrepSlug] = useState<string | null>(null);
   const [crossGrepOpen, setCrossGrepOpen] = useState(false);
+  const [secretSlug, setSecretSlug] = useState<string | null>(null);
   const [filesSlug, setFilesSlug] = useState<string | null>(null);
   /** Which card the read-only 提交历史 dialog is open on (r32-N4). */
   const [commitsSlug, setCommitsSlug] = useState<string | null>(null);
@@ -2097,6 +2102,10 @@ export function ProjectsView({
               setGrepSlug(menuCard.slug);
               setMenuOpen(false);
             },
+            onSecrets: () => {
+              setSecretSlug(menuCard.slug);
+              setMenuOpen(false);
+            },
             onFiles: () => {
               setFilesSlug(menuCard.slug);
               setMenuOpen(false);
@@ -2161,6 +2170,13 @@ export function ProjectsView({
             else if (jump.kind === "repoSettings") setSettingsSlug(jump.slug);
             else useUI.getState().go("settings");
           }}
+        />
+      )}
+
+      {secretSlug && (
+        <SecretScanDialog
+          card={cards.find((c) => c.slug === secretSlug) ?? null}
+          onClose={() => setSecretSlug(null)}
         />
       )}
 
@@ -2249,6 +2265,7 @@ function buildMenu(
     onCommits: () => void;
     onDiagnose: () => void;
     onGrep: () => void;
+    onSecrets: () => void;
     onFiles: () => void;
     onDelete: (permanent: boolean) => void;
   },
@@ -2312,6 +2329,16 @@ function buildMenu(
       // 从不置灰：诊断本身就是「把各探针的结论摊开」，探针失败的诚实回答由对话框给出，
       // 在菜单里预先猜「没什么可诊断的」只会把入口藏起来。
       onSelect: ctx.onDiagnose,
+    },
+    {
+      // r34-D7: a local, redacted prompt to look - not a security verdict. It
+      // sits beside 诊断 and 搜索 because all three read this one repository.
+      id: "secrets",
+      label: t("secret.menu"),
+      icon: <ShieldAlert className="h-3.5 w-3.5" />,
+      disabled: !card.path,
+      note: card.path ? undefined : t("secret.noPath"),
+      onSelect: ctx.onSecrets,
     },
     {
       // r21-N1-1：项目内的行级内容搜索。与 README / 诊断同属「只读地看这个仓库」

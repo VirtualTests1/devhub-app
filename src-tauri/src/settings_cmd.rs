@@ -35,9 +35,21 @@ const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 ///
 /// Stored in a fixed location rather than in the project root, because the
 /// project root is itself one of the settings and may be pointed elsewhere.
+/// Bumped when a field's meaning changes in a way an older reader would get
+/// wrong. A file without the field is schema 1 (written before versioning).
+pub(crate) const CURRENT_CONFIG_SCHEMA: u32 = 2;
+
+fn legacy_config_schema() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct AppConfig {
+    /// Schema of the file this value came from. New writes always carry
+    /// [`CURRENT_CONFIG_SCHEMA`]; a missing field means 1.
+    #[serde(default = "legacy_config_schema")]
+    pub(crate) schema_version: u32,
     /// Empty means "use the computed default".
     #[serde(default)]
     pub(crate) project_root: String,
@@ -126,6 +138,15 @@ pub(crate) struct AppConfig {
     /// When the scheduled clean-up last ran, so a restart does not re-run it.
     #[serde(default)]
     pub(crate) last_cleanup_ts: i64,
+    /// Fields written by a newer build that this one does not know.
+    ///
+    /// Without this map, opening and saving a config with a newer field would
+    /// silently delete it - exactly the "my setting disappeared" failure that an
+    /// older portable copy on a shared drive produces. They are carried through
+    /// serialization verbatim; migrations may inspect them, but nothing here
+    /// interprets them.
+    #[serde(default, flatten)]
+    pub(crate) extra: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 pub(crate) fn default_route() -> String {
@@ -155,6 +176,8 @@ pub(crate) fn default_retention() -> u32 {
 impl Default for AppConfig {
     fn default() -> Self {
         AppConfig {
+            schema_version: CURRENT_CONFIG_SCHEMA,
+            extra: std::collections::BTreeMap::new(),
             project_root: String::new(),
             mirror_enabled: false,
             ip_pin_enabled: default_true(),
@@ -448,6 +471,7 @@ pub(crate) fn read_config_for_write() -> Result<AppConfig, String> {
     let recovered = recover_config(main_text, main_missing, backup_text.as_deref());
     match recovered.cfg {
         Some(cfg) => {
+            ensure_writable_schema(cfg.schema_version)?;
             set_config_read_state(recovered.source, recovered.error);
             Ok(cfg)
         }
@@ -471,7 +495,23 @@ pub(crate) fn read_config_for_write() -> Result<AppConfig, String> {
     }
 }
 
+/// A file from a newer build is read-only here: writing would drop fields this
+/// build does not understand. Split out so the boundary is unit-testable without
+/// touching the real config path.
+pub(crate) fn ensure_writable_schema(version: u32) -> Result<(), String> {
+    if version > CURRENT_CONFIG_SCHEMA {
+        return Err(format!(
+            "配置文件由更新版本的 DevHub 写入（schema {version} > {CURRENT_CONFIG_SCHEMA}）。为避免删除不再认识的字段，本次保存已取消；请使用写入它的版本。"
+        ));
+    }
+    Ok(())
+}
+
 pub(crate) fn write_config(cfg: &AppConfig) -> Result<(), String> {
+    // Every write is current-schema: the extra map already carries unknown fields,
+    // and the version must describe what this build actually wrote.
+    let mut cfg = cfg.clone();
+    cfg.schema_version = CURRENT_CONFIG_SCHEMA;
     let p = config_path();
     if let Some(dir) = p.parent() {
         std::fs::create_dir_all(dir).map_err(|e| format!("无法创建配置目录: {e}"))?;
@@ -962,12 +1002,11 @@ pub(crate) fn apply_settings_update(value: SettingsUpdate) -> Result<(AppConfig,
         let prev = previous_effective.to_string_lossy().to_string();
         let same_as_new = prev.eq_ignore_ascii_case(&trimmed);
         let already_listed = requested.iter().any(|r| r.trim().eq_ignore_ascii_case(&prev));
-        if !same_as_new && !already_listed && previous_effective.is_dir() {
-            if check_project_root(prev.clone()).ok {
+        if !same_as_new && !already_listed && previous_effective.is_dir()
+            && check_project_root(prev.clone()).ok {
                 requested.push(prev.clone());
                 carried = Some(prev);
             }
-        }
     }
 
     let mut cleaned_roots: Vec<String> = Vec::new();
@@ -1057,6 +1096,8 @@ pub(crate) fn apply_settings_update(value: SettingsUpdate) -> Result<(AppConfig,
             .unwrap_or_else(|| existing.clone_strategy.clone()),
         recent_roots: recent,
         last_cleanup_ts: existing.last_cleanup_ts,
+        schema_version: CURRENT_CONFIG_SCHEMA,
+        extra: existing.extra,
     };
     write_config(&cfg)?;
     // Route switches (search/download) and proxy changes alter what the link
@@ -1411,6 +1452,36 @@ mod token_storage_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unversioned_config_is_schema_one_and_unknown_fields_survive_a_round_trip() {
+        let cfg: AppConfig = serde_json::from_str(
+            r#"{"projectRoot":"C:\\work","futureFlag":7,"future":{"a":1}}"#,
+        )
+        .expect("an old config must keep parsing");
+        assert_eq!(cfg.schema_version, 1, "no field means the pre-versioning schema");
+        assert_eq!(cfg.extra.get("futureFlag"), Some(&serde_json::json!(7)));
+        assert_eq!(
+            cfg.extra.get("future").and_then(|v| v.get("a")),
+            Some(&serde_json::json!(1))
+        );
+
+        let written = serde_json::to_value(&cfg).expect("serialize");
+        assert_eq!(written["schemaVersion"], 1, "a read does not silently upgrade the file");
+        assert_eq!(written["futureFlag"], 7, "an older build must not delete a newer field");
+        assert_eq!(written["future"]["a"], 1);
+
+        let fresh = serde_json::to_value(AppConfig::default()).expect("serialize");
+        assert_eq!(fresh["schemaVersion"], CURRENT_CONFIG_SCHEMA);
+    }
+
+    #[test]
+    fn a_config_from_a_newer_schema_is_not_writable() {
+        assert!(ensure_writable_schema(CURRENT_CONFIG_SCHEMA).is_ok());
+        assert!(ensure_writable_schema(1).is_ok());
+        let err = ensure_writable_schema(CURRENT_CONFIG_SCHEMA + 1).unwrap_err();
+        assert!(err.contains("更新版本"), "{err}");
+    }
 
     #[test]
     fn recover_uses_the_main_file_when_it_parses() {

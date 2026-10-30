@@ -5,6 +5,12 @@
 //! processes. Keeping logic on the React side keeps iteration fast, because
 //! Rust rebuilds take minutes on this machine while Vite hot-reloads instantly.
 
+// Tauri command signatures and the launch/clone plumbing legitimately carry many
+// parameters; packing them into structs would be a separate API change, not a
+// mechanical cleanup. The lint stays enabled elsewhere (`cargo clippy --all-targets`
+// still reports the sites for a future refactor).
+#![allow(clippy::too_many_arguments)]
+
 mod activity;
 mod activity_cmd;
 mod auth;
@@ -25,6 +31,7 @@ mod fs_watch;
 mod gitboot;
 mod gitwt;
 mod headless;
+mod health;
 mod heat;
 mod idescan;
 mod launch;
@@ -45,6 +52,7 @@ mod repo_index;
 mod search;
 mod search_cmd;
 mod searchgrep;
+mod secrets;
 mod settings_cmd;
 mod update_check;
 mod webview2;
@@ -1588,7 +1596,7 @@ async fn repo_freshness_many(
 
     // Every planned index is written before the scope closes, so `computed`
     // always carries one slot per miss.
-    for (i, slot) in misses.iter().copied().zip(computed.into_iter()) {
+    for (i, slot) in misses.iter().copied().zip(computed) {
         match slot {
             Some(Ok(f)) => rows[i].freshness = Some(f),
             Some(Err(e)) => {
@@ -1623,7 +1631,7 @@ async fn repo_worktree_status(slug: String) -> Result<launch::WorktreeStatus, St
 /// Every Python interpreter this machine offers (需求 8.5).
 #[tauri::command]
 async fn list_pythons() -> Vec<launch::PythonInstall> {
-    tauri::async_runtime::spawn_blocking(|| launch::list_pythons())
+    tauri::async_runtime::spawn_blocking(launch::list_pythons)
         .await
         .unwrap_or_default()
 }
@@ -2694,12 +2702,15 @@ async fn launch_repo(
     let env = launch_env_for(&repo);
 
     let notifier = process_events::ProcessNotifier::new(app.clone(), &settings);
-    let sink: downloader::ProgressFn = std::sync::Arc::new(move |stage: &str, message: &str| {
-        let _ = app.emit(
-            "launch://progress",
-            serde_json::json!({ "stage": stage, "message": message }),
-        );
-    });
+    let sink: downloader::ProgressFn = launch::logging_sink(
+        &slug,
+        std::sync::Arc::new(move |stage: &str, message: &str| {
+            let _ = app.emit(
+                "launch://progress",
+                serde_json::json!({ "stage": stage, "message": message }),
+            );
+        }),
+    );
 
     let steps = cfg.effective_steps();
     let spawn_sink = make_spawn_sink(notifier, slug.clone());
@@ -2781,13 +2792,15 @@ async fn launch_step(
             .ok_or_else(|| format!("步骤序号超出范围: {index}（共 {} 步）", steps.len()))?;
         let env = launch_env_for(&repo);
 
-        let sink: downloader::ProgressFn =
+        let sink: downloader::ProgressFn = launch::logging_sink(
+            &slug,
             std::sync::Arc::new(move |stage: &str, message: &str| {
                 let _ = app.emit(
                     "launch://progress",
                     serde_json::json!({ "stage": stage, "message": message }),
                 );
-            });
+            }),
+        );
         let spawn_sink = make_spawn_sink(notifier, slug.clone());
         let started = launch::launch_single_step(sink, &repo, step, &env, &spawn_sink)?;
         record_activity(
@@ -2815,12 +2828,15 @@ async fn launch_steps_all(
         .ok_or_else(|| format!("未找到仓库: {slug}"))?;
     let env = launch_env_for(&repo);
     let notifier = process_events::ProcessNotifier::new(app.clone(), &settings);
-    let sink: downloader::ProgressFn = std::sync::Arc::new(move |stage: &str, message: &str| {
-        let _ = app.emit(
-            "launch://progress",
-            serde_json::json!({ "stage": stage, "message": message }),
-        );
-    });
+    let sink: downloader::ProgressFn = launch::logging_sink(
+        &slug,
+        std::sync::Arc::new(move |stage: &str, message: &str| {
+            let _ = app.emit(
+                "launch://progress",
+                serde_json::json!({ "stage": stage, "message": message }),
+            );
+        }),
+    );
     // Captured before the move: `repo` goes into the blocking worker.
     let repo_path = repo.to_string_lossy().to_string();
     let step_count = steps.len();
@@ -2908,7 +2924,7 @@ fn open_terminal_kind(slug: &str, kind: &str) -> Result<launch::LaunchStarted, S
         .and_then(|m| m.launch.clone())
         .unwrap_or_else(empty_launch_cfg);
     let env = launch_env_for(&repo);
-    let effective = kind.trim().is_empty().then_some("pwsh").unwrap_or(kind);
+    let effective = if kind.trim().is_empty() { "pwsh" } else { kind };
     let started = launch::launch_terminal_with(&repo, &cfg, &env, effective)?;
     record_activity(
         Log::new("terminal", "打开终端", SRC_LAUNCH)
@@ -4262,6 +4278,7 @@ pub fn run_headless_delete_check(slug: &str) -> i32 {
 ///   * `Window::set_size` sets the CLIENT size, and the title bar and borders add
 ///     roughly 30-40 px on top. Asking for 820 produced a 838 px window, which was
 ///     again taller than the 816 px the taskbar left available.
+///
 /// The window's minimum client size, in logical pixels.
 ///
 /// One constant on purpose: "start at the minimum" is only adaptive if the
@@ -4528,6 +4545,7 @@ pub fn run() {
         }))
         .manage(Settings::from_config(&read_config()))
         .manage(downloads_cmd::DownloadCancels::default())
+        .manage(searchgrep::GrepCancels::default())
         .setup(|app| {
             // First, so a panic during the rest of setup is also recorded. The
             // hook runs before `panic = "abort"` terminates the process and only
@@ -4600,8 +4618,12 @@ pub fn run() {
             repo_freshness_many,
             releases::repo_release,
             licenses::license_overview,
+            health::repo_health_overview,
+            launch::launch_output,
+            secrets::repo_secret_scan,
             searchgrep::repo_grep,
             searchgrep::repo_grep_many,
+            searchgrep::cancel_repo_grep,
             files::repo_files,
             deps::check_dependencies,
             docker::docker_status,

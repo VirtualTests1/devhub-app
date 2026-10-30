@@ -45,6 +45,7 @@ import { RetentionRows } from "./records/RetentionRows";
 import { StatsPanel } from "./records/StatsPanel";
 import { StorageOverviewCard } from "./records/StorageOverviewCard";
 import { LicenseOverviewCard } from "./records/LicenseOverviewCard";
+import { HealthOverviewCard } from "./records/HealthOverviewCard";
 import { applyUiValue, settingsPayload } from "./records/undo";
 import {
   type ActivityEntry,
@@ -781,6 +782,8 @@ export function RecordsView({ onWallChanged }: { onWallChanged?: () => void }) {
       <StorageOverviewCard />
 
       <LicenseOverviewCard />
+
+      <HealthOverviewCard />
 
       {/* 统计洞察（r19-N1-2）：对**全部**历史的汇总，不是对当前筛选的——筛选回答
           「哪一行在哪」，面板回答「这段历史说了什么」。计算全在纯函数模块

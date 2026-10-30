@@ -145,12 +145,7 @@ pub struct InstallPlan {
     pub tool_name: String,
 }
 
-/// Derives the install step for one repository, or `None` when it has no manifest.
-pub fn install_plan(root: &Path) -> Option<InstallPlan> {
-    install_plan_for(root, None)
-}
-
-/// As [`install_plan`], but venv-aware. `venv` is the repository's own environment
+/// venv-aware install plan. `venv` is the repository's own environment
 /// when one exists (`lib::venv_for` already refuses a directory that is not one).
 pub fn install_plan_for(root: &Path, venv: Option<&Path>) -> Option<InstallPlan> {
     // Node wins when a repository carries both, which is the same precedence
@@ -210,7 +205,7 @@ pub fn install_plan_for(root: &Path, venv: Option<&Path>) -> Option<InstallPlan>
                          请先在 项目设置 → Python 创建环境"
                     ),
                 ),
-                _ => (cmd.to_string(), format!("{why}")),
+                _ => (cmd.to_string(), why.to_string()),
             };
             return Some(InstallPlan {
                 command,
@@ -957,7 +952,7 @@ pub fn parse_py_list(text: &str) -> Vec<PythonInstall> {
                     .then(|| v.to_string())
             })
             .unwrap_or_else(|| {
-                id.rsplit(|c| c == '\\' || c == '/')
+                id.rsplit(['\\', '/'])
                     .next()
                     .unwrap_or("")
                     .trim_start_matches("python")
@@ -1208,6 +1203,67 @@ pub type SpawnSink = std::sync::Arc<dyn Fn(std::process::Child, String) + Send +
 /// the process themselves.
 pub fn null_spawn_sink() -> SpawnSink {
     std::sync::Arc::new(|_child, _label| {})
+}
+
+/// Lines kept per repository, and repositories kept in the session log.
+///
+/// This is a debugging aid, not an archive: it lives in memory only, is cleared
+/// when a new launch starts, and is never written to disk or to the activity
+/// log. A command that prints a token prints it here too, which is exactly why
+/// the lifetime is one session and the size is bounded.
+const LAUNCH_LOG_LINES: usize = 500;
+const LAUNCH_LOG_SLUG_CAP: usize = 200;
+
+static LAUNCH_LOGS: std::sync::Mutex<Option<std::collections::HashMap<String, std::collections::VecDeque<String>>>> =
+    std::sync::Mutex::new(None);
+
+fn launch_logs() -> std::sync::MutexGuard<'static, Option<std::collections::HashMap<String, std::collections::VecDeque<String>>>> {
+    LAUNCH_LOGS.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+pub(crate) fn clear_launch_log(slug: &str) {
+    if let Some(map) = launch_logs().as_mut() {
+        map.remove(slug);
+    }
+}
+
+fn append_launch_log(slug: &str, stage: &str, message: &str) {
+    let mut guard = launch_logs();
+    let map = guard.get_or_insert_with(std::collections::HashMap::new);
+    if !map.contains_key(slug) && map.len() >= LAUNCH_LOG_SLUG_CAP {
+        if let Some(oldest) = map.keys().next().cloned() {
+            map.remove(&oldest);
+        }
+    }
+    let lines = map.entry(slug.to_string()).or_default();
+    lines.push_back(format!("[{stage}] {message}"));
+    while lines.len() > LAUNCH_LOG_LINES {
+        lines.pop_front();
+    }
+}
+
+/// Wrap a progress sink so every line is also kept for `launch_output`.
+///
+/// Clearing here, not on read, means the panel shows the **last run** rather
+/// than an interleaving of every run in the session. The wrapper is created once
+/// per launch command, before any process starts.
+pub(crate) fn logging_sink(slug: &str, inner: crate::downloader::ProgressFn) -> crate::downloader::ProgressFn {
+    clear_launch_log(slug);
+    let key = slug.to_string();
+    std::sync::Arc::new(move |stage: &str, message: &str| {
+        append_launch_log(&key, stage, message);
+        inner(stage, message);
+    })
+}
+
+/// The last run's output for one repository, oldest first.
+#[tauri::command]
+pub async fn launch_output(slug: String) -> Vec<String> {
+    launch_logs()
+        .as_ref()
+        .and_then(|map| map.get(&slug))
+        .map(|lines| lines.iter().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// Spawns `cmd` with stdout and stderr piped into `progress`, and returns the
@@ -1636,7 +1692,7 @@ fn looks_utf16le(raw: &[u8]) -> bool {
     }
     // NUL pattern: even length and the high bytes of every unit are zero.
     // Only meaningful when there is at least one full 16-bit unit.
-    if raw.len() >= 4 && raw.len() % 2 == 0 {
+    if raw.len() >= 4 && raw.len().is_multiple_of(2) {
         let mut all_zero = true;
         for i in (1..raw.len()).step_by(2) {
             if raw[i] != 0 {
@@ -1696,23 +1752,20 @@ pub(crate) fn glob_simple(base: &std::path::Path, pattern: &str) -> Vec<String> 
         let mut next = Vec::new();
         for dir in current {
             if part.contains('*') {
-                match dir.read_dir() {
-                    Ok(rd) => {
-                        for entry in rd.flatten() {
-                            let name = entry.file_name().to_string_lossy().to_string();
-                            if wildcard_match(&name.to_lowercase(), &part.to_lowercase()) {
-                                let p = dir.join(&name);
-                                if last {
-                                    if p.is_file() {
-                                        hits.push(p.to_string_lossy().to_string());
-                                    }
-                                } else if p.is_dir() {
-                                    next.push(p);
+                if let Ok(rd) = dir.read_dir() {
+                    for entry in rd.flatten() {
+                        let name = entry.file_name().to_string_lossy().to_string();
+                        if wildcard_match(&name.to_lowercase(), &part.to_lowercase()) {
+                            let p = dir.join(&name);
+                            if last {
+                                if p.is_file() {
+                                    hits.push(p.to_string_lossy().to_string());
                                 }
+                            } else if p.is_dir() {
+                                next.push(p);
                             }
                         }
                     }
-                    Err(_) => {}
                 }
             } else {
                 let p = dir.join(part);
@@ -2021,7 +2074,7 @@ pub fn scan_cache(root: &Path) -> ClearReport {
     }
 
     walk(root, root, 0, &mut items);
-    items.sort_by(|a, b| b.bytes.cmp(&a.bytes));
+    items.sort_by_key(|i| std::cmp::Reverse(i.bytes));
     let total_bytes = items.iter().map(|i| i.bytes).sum();
     ClearReport {
         items,
@@ -3265,5 +3318,42 @@ Installed Pythons found by py Launcher for Windows
         );
         assert!(health[0].listening, "a bound port is listening");
         assert!(health[2].listening, "the same port asked twice gives the same answer");
+    }
+}
+
+#[cfg(test)]
+mod launch_log_tests {
+    use super::*;
+
+    #[test]
+    fn the_ring_keeps_only_the_newest_lines_and_a_new_sink_clears_the_slug() {
+        clear_launch_log("o/r");
+        for i in 0..(LAUNCH_LOG_LINES + 5) {
+            append_launch_log("o/r", "launch", &format!("line {i}"));
+        }
+        let lines = launch_logs()
+            .as_ref()
+            .and_then(|m| m.get("o/r"))
+            .map(|l| l.iter().cloned().collect::<Vec<_>>())
+            .unwrap();
+        assert_eq!(lines.len(), LAUNCH_LOG_LINES);
+        assert!(lines[0].contains("line 5"), "oldest five were dropped");
+        assert!(lines.last().unwrap().contains("line 504"));
+
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(0usize));
+        let seen2 = seen.clone();
+        let inner: crate::downloader::ProgressFn = std::sync::Arc::new(move |_, _| {
+            *seen2.lock().unwrap() += 1;
+        });
+        let sink = logging_sink("o/r", inner);
+        sink("launch", "fresh run");
+        assert!(*seen.lock().unwrap() >= 1, "the wrapped sink still runs");
+        let lines = launch_logs()
+            .as_ref()
+            .and_then(|m| m.get("o/r"))
+            .map(|l| l.iter().cloned().collect::<Vec<_>>())
+            .unwrap();
+        assert_eq!(lines, vec!["[launch] fresh run".to_string()], "a new run starts clean");
+        clear_launch_log("o/r");
     }
 }

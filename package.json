@@ -26,7 +26,7 @@
     "mcp": "node scripts/mcp-devhub.mjs",
     "release:manifest": "node scripts/release-manifest.mjs",
     "rust:supply": "node scripts/rust-supply.mjs",
-    "check": "node scripts/check-invariants.mjs && node scripts/check-command-threading.mjs && node scripts/check-events.mjs && node scripts/check-registry.mjs && node scripts/check-docs.mjs && node scripts/check-compose.mjs && node scripts/check-build-env.mjs && node scripts/check-lint.mjs && node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/contrast-audit.mjs",
+    "check": "node scripts/check-invariants.mjs && node scripts/check-command-threading.mjs && node scripts/check-events.mjs && node scripts/check-registry.mjs && node scripts/check-docs.mjs && node scripts/check-compose.mjs && node scripts/check-build-env.mjs && node scripts/check-lint.mjs && node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/contrast-audit.mjs && node scripts/check-a11y-names.mjs",
     "gate": "pnpm exec tsc --noEmit && pnpm exec tsc -p tsconfig.tests.json --noEmit && pnpm exec tsc -p tsconfig.node.json && pnpm test && pnpm check",
     "verify": "pnpm gate && pnpm build && node scripts/check-dist.mjs && node scripts/license-report.mjs --check && node scripts/rust-supply.mjs && node scripts/sbom.mjs --check --out .pack/bom.json",
     "tauri": "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\tauri.ps1",

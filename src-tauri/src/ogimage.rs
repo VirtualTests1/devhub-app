@@ -31,6 +31,16 @@ const MAX_CACHE_BYTES: u64 = 128 * 1024 * 1024;
 /// cover, not another 49–88 KB download.
 const ETAG_TTL: Duration = Duration::from_secs(6 * 60 * 60);
 
+/// How long a failed cover fetch is remembered before the next mount may retry.
+///
+/// A repository with no OpenGraph image answers 404 every time. The frontend's
+/// session map used to keep the empty answer forever, and the backend had no
+/// negative cache at all, so every remount after a restart paid another request
+/// for a fact that cannot change in a minute. Five minutes is long enough to cover
+/// a view switch or a filter change, short enough that a transient CDN/network
+/// failure is retried in the same session. It matches `lib/cover-memo.ts`.
+const NEGATIVE_TTL: Duration = Duration::from_secs(5 * 60);
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CoverImage {
@@ -218,6 +228,45 @@ fn is_etag_sidecar(name: &str) -> bool {
     name.to_ascii_lowercase().ends_with(".etag")
 }
 
+fn is_fail_sidecar(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".fail")
+}
+
+/// Where a failed fetch for `file` is remembered.
+fn failure_path(file: &Path) -> PathBuf {
+    file.with_extension("png.fail")
+}
+
+/// Whether a remembered failure may still short-circuit a fetch.
+///
+/// Pure so the boundary is pinned by a test rather than read off a wall clock.
+fn failure_is_fresh(age: Duration) -> bool {
+    age < NEGATIVE_TTL
+}
+
+/// Read a failure marker: when it was written and the reason. Junk is ignored.
+fn read_failure(path: &Path) -> Option<(SystemTime, String)> {
+    let text = crate::path_guard::read_text_capped(path, 8192).ok()?;
+    let (stamp, reason) = text.split_once('\n')?;
+    let secs: u64 = stamp.trim().parse().ok()?;
+    Some((
+        SystemTime::UNIX_EPOCH + Duration::from_secs(secs),
+        reason.trim().to_string(),
+    ))
+}
+
+/// Remember a failed fetch. Best-effort: a cache that cannot write a marker must
+/// not turn into a second failure.
+fn write_failure(path: &Path, reason: &str) {
+    let secs = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    if let Err(e) = crate::write_atomic(path, format!("{secs}\n{reason}").as_bytes()) {
+        eprintln!("[cover-cache] 无法写入失败标记 {}: {e}", path.display());
+    }
+}
+
 /// Best-effort enforcement of the cache caps after a successful write.
 ///
 /// Failures are ignored on purpose: a cover is an upgrade, never a requirement,
@@ -242,8 +291,8 @@ fn prune_cache(root: &Path, keep: &Path) {
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
-        if is_etag_sidecar(&name) {
-            sidecars.push(name);
+        if is_etag_sidecar(&name) || is_fail_sidecar(&name) {
+            sidecars.push((name, meta.modified().unwrap_or(SystemTime::UNIX_EPOCH)));
             continue;
         }
         entries.push(CacheEntry {
@@ -253,15 +302,31 @@ fn prune_cache(root: &Path, keep: &Path) {
         });
     }
 
-    // An orphan sidecar is a leftover from a cover that was removed by 清理缓存
-    // or by an older build; it can never be consulted again.
+    // An orphan *ETag* is a leftover from a cover that was removed by 清理缓存 or
+    // by an older build; it can never be consulted again. A failure marker is the
+    // negative cache and is useful without an image — keep it until its TTL passes,
+    // then it is dead weight like any other orphan.
     let images: std::collections::HashSet<&str> =
         entries.iter().map(|e| e.name.as_str()).collect();
-    for sidecar in &sidecars {
-        let base = sidecar.strip_suffix(".etag").unwrap_or(sidecar.as_str());
-        if !images.contains(base) {
-            discard(&dir.join(sidecar));
+    let now = SystemTime::now();
+    for (sidecar, modified) in &sidecars {
+        let base = sidecar
+            .strip_suffix(".etag")
+            .or_else(|| sidecar.strip_suffix(".fail"))
+            .unwrap_or(sidecar.as_str());
+        if images.contains(base) {
+            continue;
         }
+        if is_fail_sidecar(sidecar) {
+            let fresh = now
+                .duration_since(*modified)
+                .map(failure_is_fresh)
+                .unwrap_or(false);
+            if fresh {
+                continue;
+            }
+        }
+        discard(&dir.join(sidecar));
     }
 
     let keep_name = keep
@@ -330,11 +395,42 @@ pub fn fetch_cover(root: &Path, slug: &str, force: bool) -> CoverImage {
     let dir = cache_dir(root);
     let file = dir.join(format!("{}.png", cache_stem(&format!("{owner}_{repo}"))));
     let etag_file = etag_path(&file);
+    let fail_file = failure_path(&file);
+    // One shape for every "no cover" answer, so the marker and the message cannot
+    // drift apart.
+    let fail_with = |reason: String| {
+        write_failure(&fail_file, &reason);
+        CoverImage {
+            path: None,
+            cached: false,
+            error: Some(reason),
+        }
+    };
 
     // A non-empty file is a cache candidate; a zero-byte one is a failed attempt.
     let cached = file.is_file() && std::fs::metadata(&file).map(|m| m.len()).unwrap_or(0) > 0;
     if file.is_file() && !cached {
         discard(&file);
+    }
+
+    // A recent failure is an answer: do not spend a curl (and a slot in the
+    // frontend's cover gate) asking a question the same minute already answered.
+    // `force` is the user's explicit 重试 and bypasses this once.
+    if !cached && !force {
+        if let Some((at, reason)) = read_failure(&fail_file) {
+            if let Ok(age) = SystemTime::now().duration_since(at) {
+                if failure_is_fresh(age) {
+                    return CoverImage {
+                        path: None,
+                        cached: false,
+                        error: Some(format!(
+                            "{reason}（{} 分钟内不再重试）",
+                            NEGATIVE_TTL.as_secs() / 60
+                        )),
+                    };
+                }
+            }
+        }
     }
 
     let mut if_none_match: Option<String> = None;
@@ -393,8 +489,14 @@ pub fn fetch_cover(root: &Path, slug: &str, force: bool) -> CoverImage {
             "--no-progress-meter",
             "-L",
             "--fail",
+            // Covers are decorative, and a fetch holds one of the four shared
+            // `cover-gate` slots for its whole lifetime. Measured cold fetches on
+            // this network are 0.5–5.1 s; 10 s leaves headroom for a slow CDN
+            // without letting one stalled host occupy a slot for twenty seconds.
+            "--connect-timeout",
+            "5",
             "--max-time",
-            "20",
+            "10",
             "--max-filesize",
             &MAX_BYTES.to_string(),
             "-o",
@@ -428,11 +530,7 @@ pub fn fetch_cover(root: &Path, slug: &str, force: bool) -> CoverImage {
                 if cached {
                     return cached_cover(&file, None);
                 }
-                return CoverImage {
-                    path: None,
-                    cached: false,
-                    error: Some("封面服务器返回 304，但本地没有可用的封面".to_string()),
-                };
+                return fail_with("封面服务器返回 304，但本地没有可用的封面".to_string());
             }
 
             let size = std::fs::metadata(&tmp).map(|m| m.len()).unwrap_or(0);
@@ -441,23 +539,17 @@ pub fn fetch_cover(root: &Path, slug: &str, force: bool) -> CoverImage {
                 if cached {
                     return cached_cover(&file, Some("封面更新为空，继续使用缓存".to_string()));
                 }
-                return CoverImage {
-                    path: None,
-                    cached: false,
-                    error: Some("封面图为空".to_string()),
-                };
+                return fail_with("封面图为空".to_string());
             }
             if let Err(e) = std::fs::rename(&tmp, &file) {
                 discard(&tmp);
                 if cached {
                     return cached_cover(&file, Some(format!("封面更新落盘失败，继续使用缓存: {e}")));
                 }
-                return CoverImage {
-                    path: None,
-                    cached: false,
-                    error: Some(format!("封面图落盘失败: {e}")),
-                };
+                return fail_with(format!("封面图落盘失败: {e}"));
             }
+            // The image is real now; a stale failure must not survive it.
+            discard(&fail_file);
             match fresh_etag {
                 Some(validator) => write_etag(&etag_file, &validator),
                 // A 200 without an ETag: a stale sidecar would make the next request
@@ -483,11 +575,7 @@ pub fn fetch_cover(root: &Path, slug: &str, force: bool) -> CoverImage {
             if cached {
                 return cached_cover(&file, Some(format!("刷新封面失败，继续使用缓存: {tail}")));
             }
-            CoverImage {
-                path: None,
-                cached: false,
-                error: Some(format!("获取封面图失败: {tail}")),
-            }
+            fail_with(format!("获取封面图失败: {tail}"))
         }
         Err(e) => {
             discard(&tmp);
@@ -495,11 +583,7 @@ pub fn fetch_cover(root: &Path, slug: &str, force: bool) -> CoverImage {
             if cached {
                 return cached_cover(&file, Some(format!("无法启动 curl，继续使用缓存: {e}")));
             }
-            CoverImage {
-                path: None,
-                cached: false,
-                error: Some(format!("无法启动 curl: {e}")),
-            }
+            fail_with(format!("无法启动 curl: {e}"))
         }
     }
 }
@@ -897,6 +981,52 @@ mod tests {
         let files = std::fs::read_dir(&dir).unwrap().count();
         assert!(files <= MAX_CACHE_FILES, "file cap not enforced: {files}");
         assert!(keep.is_file(), "the kept file must survive pruning");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn failure_marker_round_trips_and_has_a_real_ttl() {
+        let root = std::env::temp_dir().join(format!("devhub-cover-fail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).unwrap();
+        let marker = failure_path(&root.join("owner_repo.png"));
+
+        assert!(read_failure(&marker).is_none(), "no marker before a failure");
+        write_failure(&marker, "获取封面图失败: 404");
+        let (at, reason) = read_failure(&marker).expect("a writer must be readable");
+        assert_eq!(reason, "获取封面图失败: 404");
+        assert!(failure_is_fresh(SystemTime::now().duration_since(at).unwrap()));
+        assert!(
+            !failure_is_fresh(NEGATIVE_TTL),
+            "the boundary must retry: a failure at exactly the TTL is stale"
+        );
+
+        std::fs::write(&marker, "not-a-marker").unwrap();
+        assert!(read_failure(&marker).is_none(), "junk is ignored, not guessed at");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn prune_keeps_a_fresh_failure_marker_and_drops_a_stale_one() {
+        let root = std::env::temp_dir().join(format!("devhub-cover-fail-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let dir = cache_dir(&root);
+        std::fs::create_dir_all(&dir).unwrap();
+        let marker = dir.join("gone.png.fail");
+        write_failure(&marker, "404");
+
+        prune_cache(&root, &root.join("not-a-cover.png"));
+        assert!(marker.is_file(), "a fresh negative entry survives without its image");
+
+        let old = SystemTime::now() - NEGATIVE_TTL - Duration::from_secs(1);
+        std::fs::File::options()
+            .write(true)
+            .open(&marker)
+            .unwrap()
+            .set_modified(old)
+            .unwrap();
+        prune_cache(&root, &root.join("not-a-cover.png"));
+        assert!(!marker.exists(), "an expired negative entry is dead weight");
         let _ = std::fs::remove_dir_all(&root);
     }
 

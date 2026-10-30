@@ -29,6 +29,7 @@ mod heat;
 mod idescan;
 mod launch;
 mod launch_risk;
+mod licenses;
 mod link;
 mod metadata;
 mod native_watch;
@@ -4603,6 +4604,7 @@ pub fn run() {
             repo_freshness,
             repo_freshness_many,
             releases::repo_release,
+            licenses::license_overview,
             searchgrep::repo_grep,
             searchgrep::repo_grep_many,
             files::repo_files,

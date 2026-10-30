@@ -2340,6 +2340,23 @@ const ZH = {
   "sync.releaseCached": "缓存",
   "sync.releaseNone": "没有已发布的 Release",
   "sync.releaseFailed": "读取发布失败：{msg}",
+  "records.license.title": "许可证",
+  "records.license.hint": "扫描本机仓库根部的 LICENSE / COPYING 与常见清单文件。只读、离线，不是法律意见。",
+  "records.license.scan": "扫描许可证",
+  "records.license.scanning": "正在扫描…",
+  "records.license.scanFailed": "扫描许可证失败：{msg}",
+  "records.license.known": "已识别 {n}",
+  "records.license.missing": "缺少 {n}",
+  "records.license.unknown": "无法识别 {n}",
+  "records.license.empty": "没有扫描到仓库。",
+  "records.license.export": "导出 CSV",
+  "records.license.exportTitle": "导出许可证清单",
+  "records.license.exported": "已导出 {n} 个仓库",
+  "records.license.exportFailed": "导出失败：{msg}",
+  "records.license.capped": "仓库数超过单次上限，只扫描了前 500 个。",
+  "records.license.noLicense": "没有许可证",
+  "records.license.unrecognised": "无法识别",
+  "records.license.more": "另有 {n} 行未显示（导出包含全部）",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

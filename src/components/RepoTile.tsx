@@ -13,6 +13,7 @@ import { CATEGORY_LABEL } from "../types";
 import { formatBytes, fmtAgo, fmtElapsed, pad2 } from "../lib/format";
 import { heatBadgeOf } from "../lib/heat";
 import { withCoverSlot } from "../lib/cover-gate";
+import { coverFailureFor, forgetCoverFailure, rememberCoverFailure } from "../lib/cover-memo";
 import { useI18n, type I18n } from "../lib/useI18n";
 import type { TFunc } from "../lib/i18n";
 import { useInView } from "../lib/use-in-view";
@@ -93,11 +94,27 @@ function coverLabel(t: TFunc, origin: CoverOrigin): string {
  */
 const coverInflight = new Map<string, Promise<CoverImage>>();
 function fetchCoverOnce(slug: string): Promise<CoverImage> {
+  // A soft failure (no path) is not a session-long fact. `cover-memo` holds it
+  // for a bounded time so a wall remount or a view switch cannot retry a known
+  // 404 on every tile, but a later mount after the TTL may ask again.
+  const remembered = coverFailureFor(slug);
+  if (remembered !== null) {
+    return Promise.resolve({ path: null, cached: false, error: remembered });
+  }
   let p = coverInflight.get(slug);
   if (!p) {
     // Deduped per slug above, but that says nothing about how many *different*
     // slugs a burst asks for at once — see `src/lib/cover-gate.ts`.
-    p = withCoverSlot(() => invoke<CoverImage>("fetch_cover", { slug, force: false }));
+    p = withCoverSlot(() => invoke<CoverImage>("fetch_cover", { slug, force: false })).then((res) => {
+      if (res.path) forgetCoverFailure(slug);
+      else {
+        rememberCoverFailure(slug, res.error ?? "");
+        // Do not keep an empty answer in the session map: it would outlive the
+        // negative TTL and make the memo the only retry path.
+        coverInflight.delete(slug);
+      }
+      return res;
+    });
     coverInflight.set(slug, p);
     // A rejection must not poison the cache for the whole session: drop it so
     // the next mount (or a later refresh) can try again.

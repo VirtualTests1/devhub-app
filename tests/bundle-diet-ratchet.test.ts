@@ -167,7 +167,9 @@ test("bundle diet 3: src/lib/i18n.ts 体积棘轮（抬高上限必须在提交�
   const I18N_MAX_BYTES = 159_000;
   // 86_000 -> 88_000 on 2026-10-30 (r33): the same 26 paired keys, English side
   // measured 86,049 B. Values only; no lookup logic lives here.
-  const EN_MAX_BYTES = 88_000;
+  // 88_000 -> 92_000 on 2026-10-30 (r34): r34's 45 paired keys measure 90,105 B
+  // with the checkout's CRLF. Values only, as before.
+  const EN_MAX_BYTES = 92_000;
   assert.ok(
     RAW_BYTES <= I18N_MAX_BYTES,
     `${I18N_PATH} 现在 ${RAW_BYTES} B，超过棘轮 ${I18N_MAX_BYTES} B（r32-O1 拆分后实测 149,543 B）。正当增长就抬高并写明理由；否则先查第二张键表`,

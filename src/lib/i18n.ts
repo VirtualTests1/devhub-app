@@ -2302,6 +2302,26 @@ const ZH = {
   "commits.noPath": "这个仓库没有本地目录",
   "commits.refresh": "刷新",
   "commits.count": "最近 {n} 个提交",
+  // r33-D4-3: the 检查更新 verdict. These lived as literals in
+  // `lib/freshness-scan.ts`, which the .tsx-only ratchet cannot see — an English
+  // UI still showed Chinese for every row this function produced. Values keep
+  // the original Chinese byte for byte so the default locale does not change.
+  "freshness.headUnreadable": "读不到",
+  "freshness.sameText": "与远程一致",
+  "freshness.sameDetail": "本地与远程 HEAD 相同：{head}",
+  "freshness.diffText": "与远程 HEAD 不一致",
+  "freshness.diffDetail": "本地 {local} / 远程 {remote}；后端只答出「不相同」，可能是落后，也可能是本地领先或已分叉（后者 更新 会拒绝而不是替你合并）",
+  "freshness.noGit": "没有 git 历史",
+  "freshness.noGitDetail": "压缩包下载的仓库没有历史：更新无从下手，只能重新下载",
+  "freshness.missing": "远程仓库不存在或不可读",
+  "freshness.missingDetail": "远程不存在或已设为私有",
+  "freshness.unknown": "无法确认",
+  "freshness.unknownDetail": "后端未返回原因",
+  "freshness.unrecognised": "后端返回了未记录的状态「{state}」，不作猜测",
+  "freshness.notReached": "本轮没有答案",
+  "freshness.notReachedDetail": "批量检查有并发与数量上限，这次没轮到它；再查一次通常就有结果。此状态不代表「与远程一致」",
+  "shell.skipToContent": "跳到主要内容",
+  "shell.viewAnnounce": "已切换到{view}",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

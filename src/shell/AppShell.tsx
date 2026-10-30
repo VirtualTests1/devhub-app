@@ -22,6 +22,7 @@ import { currentKeyMap } from "../lib/shortcut-bindings";
 import { isTextField, matchAction } from "../lib/shortcuts";
 import { useLayerExit } from "../lib/motion";
 import { useI18n } from "../lib/useI18n";
+import { viewTitle } from "../lib/i18n";
 import { Sidebar } from "./Sidebar";
 import { StatusStrip } from "./StatusStrip";
 import { TitleBar } from "./TitleBar";
@@ -73,6 +74,20 @@ export function AppShell({
 }) {
   const view = useUI((s) => s.view);
   const { t } = useI18n();
+  // r33-D4-2: a view change moves the whole page, and a screen reader gets no
+  // signal from that. Announce only *changes*: the first paint already has the
+  // page title in the document, and naming it again would be noise.
+  const [viewAnnouncement, setViewAnnouncement] = useState("");
+  const announcedView = useRef<string | null>(null);
+  useEffect(() => {
+    if (announcedView.current === null) {
+      announcedView.current = view;
+      return;
+    }
+    if (announcedView.current === view) return;
+    announcedView.current = view;
+    setViewAnnouncement(t("shell.viewAnnounce", { view: viewTitle(t, view) }));
+  }, [view, t]);
   const goBack = useUI((s) => s.back);
   const goForward = useUI((s) => s.forward);
   const paletteOpen = useUI((s) => s.paletteOpen);
@@ -219,6 +234,14 @@ export function AppShell({
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-strip">
+      {/* r33-D4-2: the first tab stop. Without it, reaching the view from the
+          title bar means tabbing through every sidebar control on every page. */}
+      <a href="#devhub-main" className="skip-link">
+        {t("shell.skipToContent")}
+      </a>
+      <span className="sr-only" role="status" aria-live="polite">
+        {viewAnnouncement}
+      </span>
       <TitleBar version={version} />
 
       <div className="flex min-h-0 min-w-0 flex-1 gap-1.5 p-1.5">
@@ -250,7 +273,12 @@ export function AppShell({
             />
           </div>
 
-          <main ref={scrollerRef} className="app-main-pad relative min-h-0 min-w-0 flex-1 overflow-y-auto">
+          <main
+            id="devhub-main"
+            tabIndex={-1}
+            ref={scrollerRef}
+            className="app-main-pad relative min-h-0 min-w-0 flex-1 overflow-y-auto"
+          >
             <div
               {...reg("view-container")}
               // Keyed by `view` so `.app-view-enter` replays on every navigation.

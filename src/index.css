@@ -192,6 +192,41 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* r33-D4-2: the first tab stop is a skip link, hidden until focused.
+   Positioned off-screen with a transform rather than display:none, because a
+   display:none link cannot receive focus and would be skipped by the tab order
+   it exists to shorten. */
+.skip-link {
+  position: fixed;
+  left: 0.75rem;
+  top: 0.75rem;
+  z-index: var(--z-toast);
+  transform: translateY(-200%);
+  border-radius: 0.5rem;
+  background: var(--color-primary);
+  color: var(--color-primary-foreground);
+  padding: 0.45rem 0.75rem;
+  font-size: var(--text-body);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  transition: transform var(--motion-quick);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+
+[data-motion="reduced"] .skip-link {
+  transition: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skip-link {
+    transition: none;
+  }
+}
+
 /* Keep code paths readable and copyable. */
 code,
 kbd {

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import {
   renderableGroups,
+  stepHitIndex,
   summarizeBatch,
   type GrepBatchResult,
 } from "../src/lib/grep-batch";
@@ -79,4 +80,13 @@ test("a per-repository error is rendered even with zero hits", () => {
   const { shown } = renderableGroups(result({ groups: [group("a/missing", 0, "未找到仓库")] }));
   assert.equal(shown.length, 1);
   assert.equal(shown[0]?.error, "未找到仓库");
+});
+
+test("roving focus enters at an end and clamps rather than wraps", () => {
+  assert.equal(stepHitIndex(-1, 1, 3), 0);
+  assert.equal(stepHitIndex(-1, -1, 3), 2);
+  assert.equal(stepHitIndex(0, 1, 3), 1);
+  assert.equal(stepHitIndex(2, 1, 3), 2, "down at the last row stays");
+  assert.equal(stepHitIndex(0, -1, 3), 0, "up at the first row stays");
+  assert.equal(stepHitIndex(0, 1, 0), -1);
 });

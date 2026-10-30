@@ -41,6 +41,7 @@ export function DialogShell({
   children,
   footer,
   regId,
+  initialFocus = "close",
 }: {
   title: string;
   subtitle?: string;
@@ -52,6 +53,12 @@ export function DialogShell({
   children: React.ReactNode;
   footer?: React.ReactNode;
   regId?: string;
+  /**
+   * Where focus lands on open. `close` is the safe default for read-only
+   * dialogs; a dialog whose whole purpose is typing should say `content` so the
+   * first Tab does not start on the dismiss button.
+   */
+  initialFocus?: "close" | "content";
 }) {
   // The parent unmounts this on `onClose`, so the exit has to be played before
   // the callback runs — otherwise a dialog appears with motion and leaves by
@@ -59,6 +66,7 @@ export function DialogShell({
   const { leaving, close } = useSelfClosing(onClose);
   const { t } = useI18n();
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
   const scrimRef = useRef<HTMLDivElement | null>(null);
   const closeBtnRef = useRef<HTMLButtonElement | null>(null);
   const titleId = useId();
@@ -74,7 +82,11 @@ export function DialogShell({
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
-    closeBtnRef.current?.focus({ preventScroll: true });
+    const contentTarget =
+      initialFocus === "content"
+        ? contentRef.current?.querySelector<HTMLElement>(FOCUSABLE) ?? null
+        : null;
+    (contentTarget ?? closeBtnRef.current)?.focus({ preventScroll: true });
 
     // r20-O4-1: what the scrim covers stops being reachable, not merely hard to reach.
     // Restored on unmount, including the closing-animation unmount, so a dialog that
@@ -119,7 +131,7 @@ export function DialogShell({
       releaseInert();
       if (previous && document.contains(previous)) previous.focus({ preventScroll: true });
     };
-  }, []);
+  }, [initialFocus]);
 
   return (
     <div
@@ -200,7 +212,7 @@ export function DialogShell({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
+        <div ref={contentRef} className="min-h-0 flex-1 overflow-y-auto px-4 py-3">{children}</div>
 
         {footer && (
           <footer className="shrink-0 border-t border-border-weak px-4 py-3">{footer}</footer>

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { FileSearch, LoaderCircle, TriangleAlert } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { FileSearch, SquareStop, TriangleAlert } from "lucide-react";
 
 import { DialogShell } from "../components/DialogShell";
 import { useI18n } from "../lib/useI18n";
@@ -8,7 +9,9 @@ import { messageOf, reportError } from "../lib/report-error";
 import { cn } from "../lib/utils";
 import { checkPattern, hitAbsolutePath, PATTERN_MAX, type GrepHit } from "../lib/grep";
 import {
+  BATCH_MAX_REPOS,
   renderableGroups,
+  stepHitIndex,
   summarizeBatch,
   type GrepBatchResult,
 } from "../lib/grep-batch";
@@ -47,7 +50,32 @@ export function CrossRepoGrepDialog({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<GrepBatchResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const taskRef = useRef("");
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
+  const [activeHit, setActiveHit] = useState(-1);
+
+  useEffect(() => {
+    // A new answer is a new list; keeping the old row selected would point at a
+    // different line. Focus stays where it was (input or list) until the user
+    // presses an arrow key.
+    setActiveHit(-1);
+  }, [result]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void listen<{ task: string; done: number; total: number }>("grep://progress", (event) => {
+      if (event.payload.task !== taskRef.current) return;
+      setProgress({ done: event.payload.done, total: event.payload.total });
+    })
+      .then((off) => {
+        unlisten = off;
+      })
+      .catch(() => undefined);
+    return () => unlisten?.();
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -61,14 +89,19 @@ export function CrossRepoGrepDialog({
   if (!open) return null;
 
   const issue = checkPattern(pattern);
-  const canRun = issue === null && !busy && slugs.length > 0;
+  const overScope = slugs.length > BATCH_MAX_REPOS;
+  const canRun = issue === null && !busy && !cancelling && slugs.length > 0;
 
   const run = async () => {
     if (issue !== null) return;
     setBusy(true);
     setError(null);
+    setProgress({ done: 0, total: Math.min(slugs.length, BATCH_MAX_REPOS) });
+    setCancelling(false);
+    taskRef.current = crypto.randomUUID();
     try {
       const answer = await invoke<GrepBatchResult>("repo_grep_many", {
+        task: taskRef.current,
         slugs,
         pattern,
         caseInsensitive: ci,
@@ -83,7 +116,22 @@ export function CrossRepoGrepDialog({
       reportError(e, t("grep.search"));
     } finally {
       setBusy(false);
+      setProgress(null);
+      setCancelling(false);
     }
+  };
+
+  const cancel = () => {
+    if (!busy || !taskRef.current) return;
+    setCancelling(true);
+    void invoke("cancel_repo_grep", { task: taskRef.current }).catch(() => undefined);
+  };
+
+  const close = () => {
+    if (busy && taskRef.current) {
+      void invoke("cancel_repo_grep", { task: taskRef.current }).catch(() => undefined);
+    }
+    onClose();
   };
 
   const reveal = (root: string, hit: GrepHit) => {
@@ -95,12 +143,30 @@ export function CrossRepoGrepDialog({
   const summary = result ? summarizeBatch(result) : null;
   const rendered = result ? renderableGroups(result) : null;
   const failedGroups = result?.groups.filter((g) => g.error !== null) ?? [];
+  const hitRows =
+    rendered?.shown.flatMap((group) =>
+      group.hits.map((hit) => ({ group, hit })),
+    ) ?? [];
+
+  const focusHit = (delta: number) => {
+    const next = stepHitIndex(activeHit, delta, hitRows.length);
+    if (next < 0) return;
+    setActiveHit(next);
+    // The row is a real button: moving focus (not aria-activedescendant) keeps
+    // Enter/Space and the screen reader's own controls working.
+    requestAnimationFrame(() => {
+      listRef.current
+        ?.querySelectorAll<HTMLButtonElement>("[data-hit-row]")
+        .item(next)
+        ?.focus();
+    });
+  };
 
   return (
     <DialogShell
       title={t("grep.batch.title")}
       subtitle={t("grep.batch.subtitle", { n: slugs.length })}
-      onClose={onClose}
+      onClose={close}
       width="lg"
       footer={
         <span className="text-caption text-muted-foreground">{t("grep.keyboardHint")}</span>
@@ -134,16 +200,39 @@ export function CrossRepoGrepDialog({
         >
           Aa
         </button>
-        <button
-          type="button"
-          onClick={() => void run()}
-          disabled={!canRun}
-          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-primary/60 bg-primary/15 px-3 text-caption text-primary transition-colors hover:bg-primary/25 disabled:opacity-40"
-        >
-          {busy ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <FileSearch className="h-3.5 w-3.5" />}
-          {t("grep.search")}
-        </button>
+        {busy ? (
+          <button
+            type="button"
+            onClick={cancel}
+            disabled={cancelling}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-danger/50 bg-danger/10 px-3 text-caption text-danger transition-colors hover:bg-danger/20 disabled:opacity-40"
+          >
+            <SquareStop className="h-3.5 w-3.5" />
+            {t("grep.batch.cancel")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => void run()}
+            disabled={!canRun}
+            className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-primary/60 bg-primary/15 px-3 text-caption text-primary transition-colors hover:bg-primary/25 disabled:opacity-40"
+          >
+            <FileSearch className="h-3.5 w-3.5" />
+            {t("grep.search")}
+          </button>
+        )}
       </div>
+
+      {overScope && (
+        <p className="mt-2 text-caption text-warning">
+          {t("grep.batch.scopeWarning", { n: BATCH_MAX_REPOS })}
+        </p>
+      )}
+      {busy && progress && (
+        <p className="mt-2 text-caption text-muted-foreground" role="status" aria-live="polite">
+          {t("grep.batch.progress", { done: progress.done, total: progress.total })}
+        </p>
+      )}
 
       {issue === "tooLong" && (
         <p className="mt-2 text-caption text-warning">{t("grep.patternTooLong", { max: PATTERN_MAX })}</p>
@@ -169,7 +258,10 @@ export function CrossRepoGrepDialog({
               ms: result.elapsedMs,
             })}
           </p>
-          {summary.partial && (
+          {result.cancelled && (
+            <p className="mt-1 text-caption text-warning">{t("grep.batch.cancelled")}</p>
+          )}
+          {summary.partial && !result.cancelled && (
             <p className="mt-1 text-caption text-warning">{t("grep.batch.partial")}</p>
           )}
           {failedGroups.length > 0 && (
@@ -186,7 +278,31 @@ export function CrossRepoGrepDialog({
               {t("grep.batch.noHits", { repos: summary.scannedRepos })}
             </p>
           ) : (
-            <ul className="mt-3 max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+            <ul
+              ref={listRef}
+              aria-label={t("grep.listAria", { n: hitRows.length })}
+              onKeyDown={(event) => {
+                if (event.key === "ArrowDown") {
+                  event.preventDefault();
+                  focusHit(1);
+                } else if (event.key === "ArrowUp") {
+                  event.preventDefault();
+                  focusHit(-1);
+                } else if (event.key === "Home" && hitRows.length > 0) {
+                  event.preventDefault();
+                  setActiveHit(0);
+                  listRef.current?.querySelector<HTMLButtonElement>("[data-hit-row]")?.focus();
+                } else if (event.key === "End" && hitRows.length > 0) {
+                  event.preventDefault();
+                  setActiveHit(hitRows.length - 1);
+                  listRef.current
+                    ?.querySelectorAll<HTMLButtonElement>("[data-hit-row]")
+                    .item(hitRows.length - 1)
+                    ?.focus();
+                }
+              }}
+              className="mt-3 max-h-[52vh] space-y-2 overflow-y-auto pr-1"
+            >
               {rendered.shown.map((group) => {
                 const full = result.groups.find((g) => g.slug === group.slug);
                 return (
@@ -200,10 +316,17 @@ export function CrossRepoGrepDialog({
                     {group.error && (
                       <p className="px-2.5 py-1.5 text-caption text-warning">{group.error}</p>
                     )}
-                    {group.hits.map((hit) => (
+                    {group.hits.map((hit) => {
+                      const rowIndex = hitRows.findIndex(
+                        (row) => row.group.slug === group.slug && row.hit === hit,
+                      );
+                      return (
                       <button
                         key={`${hit.file}:${hit.line}`}
                         type="button"
+                        data-hit-row
+                        tabIndex={activeHit === rowIndex || (activeHit < 0 && rowIndex === 0) ? 0 : -1}
+                        onFocus={() => setActiveHit(rowIndex)}
                         onClick={() => reveal(full?.root ?? "", hit)}
                         title={t("grep.revealTitle", { path: `${hit.file}:${hit.line}` })}
                         className="flex w-full items-baseline gap-2 px-2.5 py-1 text-left transition-colors hover:bg-accent"
@@ -213,7 +336,8 @@ export function CrossRepoGrepDialog({
                         </span>
                         <span className="min-w-0 truncate text-caption text-foreground/90">{hit.content}</span>
                       </button>
-                    ))}
+                      );
+                    })}
                     {group.hiddenHits > 0 && (
                       <p className="px-2.5 py-1 text-caption text-muted-foreground">
                         {t("grep.batch.hiddenHits", { n: group.hiddenHits })}

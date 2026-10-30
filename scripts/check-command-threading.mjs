@@ -24,6 +24,7 @@ const ROOT = dirname(dirname(fileURLToPath(import.meta.url)));
  */
 export const ALLOWLIST = new Map([
   ["cancel_download", "flips an in-memory CancelToken; the clone itself runs on a worker"],
+  ["cancel_repo_grep", "flips an in-memory AtomicBool; the scan itself runs in spawn_blocking"],
   ["clear_search_cache", "clears the in-memory search cache map"],
   ["git_bootstrap_status", "reads the in-memory bootstrap outcome"],
   ["assess_launch_commands", "bounded regexes over the handful of commands being edited"],

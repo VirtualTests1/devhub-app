@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { findUnnamedButtons } from "../scripts/check-a11y-names.mjs";
+import { findUnnamedButtons, findUnnamedInputs } from "../scripts/check-a11y-names.mjs";
 
 /*
  * The classifier behind `pnpm check`'s a11y-names row.
@@ -47,4 +47,20 @@ test("aria-hidden backdrops are out of scope", () => {
 test("the reported line is the button's own line", () => {
   const source = `const x = 1;\n\n<button type="button"><Icon /></button>`;
   assert.equal(findUnnamedButtons(source, "a.tsx")[0]?.line, 3);
+});
+
+test("form controls need a name; a wrapping label counts", () => {
+  assert.equal(findUnnamedInputs(`<input value={x} />`).length, 1);
+  assert.equal(findUnnamedInputs(`<input aria-label={t("x")} />`).length, 0);
+  assert.equal(findUnnamedInputs(`<input id="q" /><label htmlFor="q">Q</label>`).length, 0);
+  assert.equal(findUnnamedInputs(`<label>Email<input type="email" /></label>`).length, 0);
+  assert.equal(findUnnamedInputs(`<input placeholder="search" />`).length, 1);
+  assert.equal(findUnnamedInputs(`<input type="hidden" value={x} />`).length, 0);
+  assert.equal(findUnnamedInputs(`<select {...props} />`).length, 0);
+});
+
+test("a control mentioned in a comment is not a control", () => {
+  assert.equal(findUnnamedInputs(`/* <input /> */`).length, 0);
+  assert.equal(findUnnamedInputs(`{/* <select /> */}`).length, 0);
+  assert.equal(findUnnamedButtons(`// <button><X /></button>`).length, 0);
 });

@@ -166,6 +166,7 @@ export function RepoGrepDialog({ card, onClose }: { card: Card | null; onClose: 
   return (
     <DialogShell
       title={t("grep.dialogTitle")}
+      initialFocus="content"
       subtitle={root || `${card.owner}/${card.repo}`}
       onClose={onClose}
       width="lg"

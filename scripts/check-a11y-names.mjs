@@ -126,7 +126,24 @@ function contentIsText(inner) {
  * Exported so `tests/a11y-names.test.ts` can pin the classifier with synthetic
  * sources instead of relying on the repo's current file set.
  */
+
+/**
+ * Blank out comments while preserving every newline, so a `<select>` mentioned
+ * in prose is not a control. JSX comments are block comments (`{/* ... *\/}`),
+ * which this covers; a line whose trimmed text starts with `//` is a line
+ * comment. Inline `//` after code is left alone: it is rare, and stripping it
+ * without a full lexer would also cut URLs inside strings.
+ */
+function stripComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, (m) => m.replace(/[^\n]/g, " "))
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("//") ? line.replace(/[^\n]/g, " ") : line))
+    .join("\n");
+}
+
 export function findUnnamedButtons(source, file = "<source>") {
+  source = stripComments(source);
   const out = [];
   let index = 0;
   while ((index = source.indexOf("<button", index)) !== -1) {
@@ -163,6 +180,52 @@ export function findUnnamedButtons(source, file = "<source>") {
   return out;
 }
 
+
+/**
+ * Find `<input>` / `<select>` / `<textarea>` elements with no accessible name.
+ *
+ * A name may come from `aria-label`, `aria-labelledby`, `title`, or a `<label
+ * htmlFor="id">` in the same file. `placeholder` is NOT a name: it disappears
+ * once the field has content and several screen readers do not announce it.
+ * `type="hidden"` is out of scope (nothing interacts with it).
+ */
+export function findUnnamedInputs(source, file = "<source>") {
+  source = stripComments(source);
+  const out = [];
+  const labelFor = new Set(
+    [...source.matchAll(/htmlFor\s*=\s*(?:"([^"]+)"|'([^']+)'|\{\s*["'`]([^"'`]+)["'`]\s*\})/g)]
+      .map((m) => m[1] ?? m[2] ?? m[3])
+      .filter(Boolean),
+  );
+  for (const tag of ["input", "select", "textarea"]) {
+    let index = 0;
+    while ((index = source.indexOf(`<${tag}`, index)) !== -1) {
+      const openEnd = endOfTag(source, index);
+      if (openEnd === -1) break;
+      const tagText = source.slice(index, openEnd);
+      const attrs = tagText.replace(new RegExp(`^<${tag}\\b`), "");
+      const line = source.slice(0, index).split("\n").length;
+      const before = source.slice(0, index);
+      // A checkbox wrapped by its own <label> takes the label's text as its name.
+      const wrapped = before.lastIndexOf("<label") > before.lastIndexOf("</label>");
+      index = openEnd;
+      if (/\baria-hidden\b/.test(attrs)) continue;
+      if (tag === "input" && /\btype\s*=\s*["']hidden["']/.test(attrs)) continue;
+      const named =
+        NAMING_ATTR.test(attrs) ||
+        wrapped ||
+        // A generic control that spreads caller props can receive aria-label at
+        // the call site; a text scanner cannot follow the spread.
+        /\{\s*\.\.\.[A-Za-z_$]/.test(attrs) ||
+        [...attrs.matchAll(/\bid\s*=\s*["']([^"']+)["']/g)].some((m) => labelFor.has(m[1]));
+      if (!named) {
+        out.push({ file, line, snippet: tagText.replace(/\s+/g, " ").slice(0, 120) });
+      }
+    }
+  }
+  return out;
+}
+
 function selftest() {
   const cases = [
     [`<button type="button"><X /></button>`, 1],
@@ -174,6 +237,18 @@ function selftest() {
     [`<button type="button"><Icon /></button>`, 1],
     [`<button type="button" />`, 1],
   ];
+  const inputCases = [
+    [`<input value={x} />`, 1],
+    [`<input aria-label={t("x")} />`, 0],
+    [`<input id="q" /><label htmlFor="q">Q</label>`, 0],
+    [`<input id="q" /><label htmlFor={\`q\`}>Q</label>`, 0],
+    [`<input placeholder="search" />`, 1, "placeholder is not a name"],
+    [`<input type="hidden" value={x} />`, 0],
+    [`/* <input /> */`, 0, "a comment is not a control"],
+    [`{/* <select /> */}`, 0, "a JSX comment is not a control"],
+    [`<select aria-labelledby="lbl" />`, 0],
+    [`<textarea title="Notes" />`, 0],
+  ];
   let failed = 0;
   for (const [src, expected] of cases) {
     const got = findUnnamedButtons(src).length;
@@ -182,8 +257,15 @@ function selftest() {
       console.error(`selftest FAIL: expected ${expected}, got ${got}: ${src}`);
     }
   }
+  for (const [src, expected, why] of inputCases) {
+    const got = findUnnamedInputs(src).length;
+    if (got !== expected) {
+      failed += 1;
+      console.error(`selftest FAIL (${why ?? "input"}): expected ${expected}, got ${got}: ${src}`);
+    }
+  }
   if (failed) process.exit(1);
-  console.log(`selftest OK: ${cases.length} classifier cases`);
+  console.log(`selftest OK: ${cases.length} button + ${10} input classifier cases`);
 }
 
 const args = process.argv.slice(2);
@@ -196,17 +278,20 @@ if (args.some((a) => a !== "--json")) {
   process.exit(2);
 }
 
-const findings = tsxFiles().flatMap((f) => findUnnamedButtons(readFileSync(f, "utf8"), f));
+const findings = tsxFiles().flatMap((f) => {
+  const text = readFileSync(f, "utf8");
+  return [...findUnnamedButtons(text, f), ...findUnnamedInputs(text, f)];
+});
 if (args.includes("--json")) {
   console.log(JSON.stringify({ count: findings.length, findings }, null, 2));
 } else {
   for (const f of findings) {
-    console.error(`${relative(ROOT, f.file)}:${f.line} unnamed button: ${f.snippet}`);
+    console.error(`${relative(ROOT, f.file)}:${f.line} unnamed control: ${f.snippet}`);
   }
   console.log(
     findings.length
-      ? `FAIL: ${findings.length} <button> element(s) have no accessible name`
-      : "OK: every <button> has an accessible name (aria-label/labelledby/title or content)",
+      ? `FAIL: ${findings.length} control(s) have no accessible name`
+      : "OK: every button/input/select/textarea has an accessible name (aria-label/labelledby/title/label or content)",
   );
 }
 process.exit(findings.length ? 1 : 0);

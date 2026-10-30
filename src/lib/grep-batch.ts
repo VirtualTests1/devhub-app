@@ -30,10 +30,15 @@ export type GrepBatchResult = {
   truncated: boolean;
   /** The deadline expired before every repository was reached. */
   timedOut: boolean;
+  /** The user cancelled; groups collected so far are still present. */
+  cancelled?: boolean;
   /** Slugs over the backend's repository ceiling were never looked up. */
   repositoriesSkipped: number;
   error: string | null;
 };
+
+/** The backend's repository ceiling; the dialog warns before the request. */
+export const BATCH_MAX_REPOS = 200;
 
 /** Groups and hits painted before the rest become a counted sentence. */
 export const BATCH_RENDER_GROUPS = 20;
@@ -73,6 +78,19 @@ export function summarizeBatch(result: GrepBatchResult): BatchSummary {
     partial:
       result.truncated || result.timedOut || result.repositoriesSkipped > 0,
   };
+}
+
+/**
+ * Clamped roving-focus step for the result list.
+ *
+ * `-1` means "nothing focused yet": ArrowDown enters at the first row, ArrowUp
+ * at the last. At an edge the index stays put rather than wrapping - wrapping a
+ * list of file hits sends the eye to the other end of the dialog.
+ */
+export function stepHitIndex(current: number, delta: number, total: number): number {
+  if (total <= 0) return -1;
+  if (current < 0) return delta >= 0 ? 0 : total - 1;
+  return Math.max(0, Math.min(total - 1, current + delta));
 }
 
 export type RenderedGroup = {

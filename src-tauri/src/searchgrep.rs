@@ -10,6 +10,8 @@
 use regex::Regex;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use walkdir::WalkDir;
 
@@ -216,8 +218,46 @@ pub struct GrepBatchResult {
     pub truncated: bool,
     /// The deadline expired before every repository was reached.
     pub timed_out: bool,
+    /// The caller asked to stop; groups already collected are still returned.
+    pub cancelled: bool,
     pub repositories_skipped: usize,
     pub error: Option<String>,
+}
+
+/// Cancellation tokens for in-flight cross-repository searches, keyed by the
+/// frontend's task id. Same shape as `DownloadCancels`: the worker flips it
+/// between repositories, and a request that is already gone is a no-op.
+#[derive(Default)]
+pub(crate) struct GrepCancels(Mutex<std::collections::HashMap<String, Arc<AtomicBool>>>);
+
+impl GrepCancels {
+    fn insert(&self, task: &str, token: Arc<AtomicBool>) {
+        if let Ok(mut map) = self.0.lock() {
+            map.insert(task.to_string(), token);
+        }
+    }
+
+    fn cancel(&self, task: &str) -> bool {
+        let token = self.0.lock().ok().and_then(|map| map.get(task).cloned());
+        match token {
+            Some(token) => {
+                token.store(true, Ordering::SeqCst);
+                true
+            }
+            None => false,
+        }
+    }
+
+    fn remove(&self, task: &str) {
+        if let Ok(mut map) = self.0.lock() {
+            map.remove(task);
+        }
+    }
+}
+
+#[tauri::command]
+pub(crate) fn cancel_repo_grep(cancels: tauri::State<'_, GrepCancels>, task: String) -> bool {
+    cancels.cancel(&task)
 }
 
 /// Cross-repository search with a per-request budget.
@@ -226,15 +266,22 @@ pub struct GrepBatchResult {
 /// line in every named repository, and the caller asked for that scope. The
 /// bakeoff that ruled `repo_grep` out for ranking (r21-N1) still holds — this
 /// command is not a ranking source and the UI labels it as a line search.
-#[tauri::command(async)]
-pub fn repo_grep_many(
+#[tauri::command]
+pub async fn repo_grep_many(
+    app: tauri::AppHandle,
+    cancels: tauri::State<'_, GrepCancels>,
+    task: Option<String>,
     slugs: Vec<String>,
     pattern: String,
     case_insensitive: Option<bool>,
     per_repo_limit: Option<usize>,
     total_limit: Option<usize>,
-) -> GrepBatchResult {
+) -> Result<GrepBatchResult, String> {
+    use tauri::Emitter;
     let start = Instant::now();
+    let task_id = task.unwrap_or_else(|| "grep".to_string());
+    let token = Arc::new(AtomicBool::new(false));
+    cancels.insert(&task_id, token.clone());
     let roots = crate::project_roots();
     let skipped = slugs.len().saturating_sub(BATCH_MAX_REPOS);
     let entries: Vec<(String, PathBuf)> = slugs
@@ -250,16 +297,37 @@ pub fn repo_grep_many(
         .clamp(1, BATCH_PER_REPO_HITS);
     let total = total_limit.unwrap_or(BATCH_TOTAL_HITS).clamp(1, BATCH_TOTAL_HITS);
     let deadline = start + std::time::Duration::from_millis(BATCH_DEADLINE_MS);
-    let mut out = grep_many_roots(
-        entries,
-        &pattern,
-        case_insensitive.unwrap_or(false),
-        total,
-        per_repo,
-        deadline,
-    );
-    out.repositories_skipped += skipped;
-    out
+    let task_for_events = task_id.clone();
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        let mut progress = |done: usize, total: usize, slug: &str| {
+            app.emit(
+                "grep://progress",
+                serde_json::json!({
+                    "task": task_for_events,
+                    "done": done,
+                    "total": total,
+                    "slug": slug,
+                }),
+            )
+            .ok();
+        };
+        let mut out = grep_many_roots(
+            entries,
+            &pattern,
+            case_insensitive.unwrap_or(false),
+            total,
+            per_repo,
+            deadline,
+            &token,
+            &mut progress,
+        );
+        out.repositories_skipped += skipped;
+        out
+    })
+    .await
+    .map_err(|e| format!("跨仓库搜索任务异常: {e}"))?;
+    cancels.remove(&task_id);
+    Ok(outcome)
 }
 
 /// The testable batch core: paths in, bounded groups out.
@@ -270,6 +338,8 @@ pub(crate) fn grep_many_roots(
     total_limit: usize,
     per_repo_limit: usize,
     deadline: Instant,
+    cancelled: &AtomicBool,
+    progress: &mut dyn FnMut(usize, usize, &str),
 ) -> GrepBatchResult {
     let start = Instant::now();
     if let Err(e) = compile_pattern(pattern, ci) {
@@ -282,6 +352,7 @@ pub(crate) fn grep_many_roots(
             elapsed_ms: start.elapsed().as_millis(),
             truncated: false,
             timed_out: false,
+            cancelled: false,
             repositories_skipped: 0,
             error: Some(e),
         };
@@ -293,8 +364,15 @@ pub(crate) fn grep_many_roots(
     let mut files_skipped = 0usize;
     let mut timed_out = false;
     let mut truncated = false;
+    let mut was_cancelled = false;
+    let total_repos = entries.len();
+    let mut done = 0usize;
 
     for (slug, path) in entries {
+        if cancelled.load(Ordering::SeqCst) {
+            was_cancelled = true;
+            break;
+        }
         if Instant::now() >= deadline {
             timed_out = true;
             break;
@@ -312,6 +390,8 @@ pub(crate) fn grep_many_roots(
                 hits: Vec::new(),
                 error: Some("未找到仓库".to_string()),
             });
+            done += 1;
+            progress(done, total_repos, &slug);
             continue;
         }
         let remaining = (total_limit - total_hits).min(per_repo_limit);
@@ -331,13 +411,15 @@ pub(crate) fn grep_many_roots(
         files_scanned += result.files_scanned;
         files_skipped += result.files_skipped;
         groups.push(GrepGroup {
-            slug,
+            slug: slug.clone(),
             root: result.root,
             files_scanned: result.files_scanned,
             files_skipped: result.files_skipped,
             hits: std::mem::take(&mut result.hits),
             error: result.error,
         });
+        done += 1;
+        progress(done, total_repos, &slug);
         if expired {
             timed_out = true;
             break;
@@ -353,6 +435,7 @@ pub(crate) fn grep_many_roots(
         elapsed_ms: start.elapsed().as_millis(),
         truncated,
         timed_out,
+        cancelled: was_cancelled,
         repositories_skipped: 0,
         error: None,
     }
@@ -576,6 +659,7 @@ let x = {i};
         let a = Scratch::new("batch-a");
         let b = Scratch::new("batch-b");
         let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        let mut progress: Vec<(usize, usize, String)> = Vec::new();
         let out = grep_many_roots(
             vec![
                 ("owner/a".to_string(), a.0.clone()),
@@ -587,7 +671,10 @@ let x = {i};
             1000,
             5,
             deadline,
+            &AtomicBool::new(false),
+            &mut |done, total, slug| progress.push((done, total, slug.to_string())),
         );
+        assert_eq!(progress, vec![(1, 3, "owner/a".to_string()), (2, 3, "owner/b".to_string()), (3, 3, "owner/missing".to_string())]);
 
         assert_eq!(out.groups.len(), 3);
         assert_eq!(out.groups[0].hits.len(), 5, "the per-repo cap must hold");
@@ -612,9 +699,31 @@ let x = {i};
             10,
             10,
             Instant::now() + std::time::Duration::from_secs(30),
+            &AtomicBool::new(false),
+            &mut |_, _, _| {},
         );
         assert!(out.error.as_deref().unwrap_or("").contains("正则编译失败"));
         assert!(out.groups.is_empty(), "nothing is scanned when the pattern cannot compile");
+    }
+
+    #[test]
+    fn a_cancelled_batch_returns_the_groups_already_found() {
+        let s = Scratch::new("batch-cancel");
+        let token = AtomicBool::new(true);
+        let out = grep_many_roots(
+            vec![("owner/a".to_string(), s.0.clone())],
+            "fn hit_",
+            false,
+            1000,
+            50,
+            Instant::now() + std::time::Duration::from_secs(30),
+            &token,
+            &mut |_, _, _| {},
+        );
+        assert!(out.cancelled);
+        assert_eq!(out.total_hits, 0);
+        assert!(out.groups.is_empty());
+        assert!(!out.timed_out, "cancellation is not a timeout");
     }
 
     #[test]
@@ -627,6 +736,8 @@ let x = {i};
             1000,
             50,
             Instant::now() - std::time::Duration::from_secs(1),
+            &AtomicBool::new(false),
+            &mut |_, _, _| {},
         );
         assert!(out.timed_out);
         assert_eq!(out.total_hits, 0);

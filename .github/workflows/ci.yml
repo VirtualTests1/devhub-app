@@ -1,10 +1,9 @@
 name: CI
 
-# 状态：**本地验证过命令，CI 对本次改动尚未核实。**
+# 状态：r33/r34 新增的 clippy 与 cargo-audit 步骤只在本地用同一命令跑过；CI 结论以
+# GitHub Actions 推送后的运行结果为准——不把“本地通过”说成 CI 通过。
 # 本文件写于 2026-10-14、当时仓库没有远程；2026-10-28 起仓库已有远程与 Release。
-# 2026-10-30 的这一轮改动（r33）没有推送，所以 GitHub Actions 对新增的 clippy /
-# cargo-audit 步骤还没有运行记录——本地跑的是同样的命令，不把“本地通过”说成 CI 通过。
-# 其余步骤的依据来自本仓实测：`package.json` 的脚本入口、DEVELOPMENT.md §1 与 §8。
+# 其余步骤的依据来自本仓实测：`package.json` 的脚本入口与内部开发记录。
 
 on:
   push:
@@ -113,7 +112,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      # env.ps1 是给**这台机器**用的：DEVELOPMENT.md §1 记录了本机 vcvars64.bat 损坏、
+      # env.ps1 是给**这台机器**用的：本机记录显示 vcvars64.bat 损坏、
       # 三套 VS 里 `vswhere -latest` 指向不能编 C++ 的那套。GitHub 的 windows runner 带
       # 可用的 MSVC 与 Windows SDK，所以这里不 source 它 —— 在 CI 上 source 一个只对本机
       # 成立的路径表，得到的绿灯是假的。
@@ -129,7 +128,7 @@ jobs:
       # （lib.rs:5924 的 `.build(tauri::generate_context!())`）在**编译测试二进制时**
       # 把 tauri.conf.json 的 `build.frontendDist`（`../dist`）嵌进去，而 `dist/` 在
       # `.gitignore` 里、不会随 checkout 到来 —— 新鲜 checkout 必然编不过
-      # （docs/archive/DevHub改进矩阵_round12_20261015.md §10.4 登记的缺陷）。
+      # （round 12 的改进矩阵 §10.4 登记过这个缺陷）。
       - name: 安装前端依赖（供下一步 vite 产出 ../dist）
         run: pnpm install --frozen-lockfile
 

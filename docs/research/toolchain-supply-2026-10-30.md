@@ -94,9 +94,9 @@ node scripts/rust-supply.mjs --require   # 需要能访问 RustSec advisory-db �
 
 ## 6. 未验证 / 遗留
 
-- CI 上 clippy 与 cargo-audit 步骤未实际运行（本轮未推送）；本地跑的是同一命令。
+- CI 上 clippy 与 cargo-audit 步骤未实际运行（r33/r34 均未推送）；本地跑的是同一命令。
   审计的“0 条”是缓存数据库读数，不是对 GitHub 最新 DB 的实时结论。
-- 45 条 clippy 风格/复杂度告警未清理；其中 `too_many_arguments` 是设计取舍，不是
-  待办清单上的机械项。
+- `--all-targets` 仍会报告测试代码的风格建议，因此门禁口径是 `--lib`；两个窄例外
+  （crate 级 `too_many_arguments`、两处 `large_enum_variant`）已在第 1 节记录。
 - 覆盖率未按目录设阈值；`src-tauri` 没有 JS 覆盖率口径，Rust 侧靠 493 个
   `#[test]`（`cargo test --lib`，2026-10-30 实测 493 passed / 0 failed）。

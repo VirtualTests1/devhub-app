@@ -16,7 +16,7 @@ r33 的 CSP 收紧（`connect-src 'self'`）是在 Vite 的 `http://localhost:14
 pnpm build
 pnpm tauri build --debug --no-bundle
 $env:WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS="--remote-debugging-port=9223"
-$env:DEVHUB_PROJECT_ROOT="D:\wai\Project\DeepSeekHarness\issues\devhub-app\.mcpfixtures\container"
+$env:DEVHUB_PROJECT_ROOT = Join-Path $PWD '.mcpfixtures\container'
 src-tauri\target\debug\devhub-app.exe
 node scripts/cdp.mjs scripts/scenarios/packaged-runtime.mjs --port 9223
 ```

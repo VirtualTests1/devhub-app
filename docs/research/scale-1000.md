@@ -50,9 +50,9 @@ node --experimental-strip-types --import ./tests/helpers/register.mjs `
 ```powershell
 node scripts/scale-fixture.mjs --root .pack/scale-fixture --count 50
 .\src-tauri\target\debug\devhub-app.exe --scan-check 3 `
-  D:\wai\Project\DeepSeekHarness\issues\devhub-app\.pack\scale-fixture
+  .pack\scale-fixture
 $env:DEVHUB_NO_INDEX = "1"; .\src-tauri\target\debug\devhub-app.exe --scan-check 2 `
-  D:\wai\Project\DeepSeekHarness\issues\devhub-app\.pack\scale-fixture
+  .pack\scale-fixture
 ```
 
 实测（50 个仓库、2 个 owner）：

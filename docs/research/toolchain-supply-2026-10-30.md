@@ -24,7 +24,7 @@ pnpm rust:clippy   # 同一个命令的本地入口（--lib）
 债务，不隐藏：`rust:clippy` 会原样打印它们，`-D warnings` 留到清理完成后再上。
 CI 的 `cargo clippy` 步骤跑同一组 lint（`.github/workflows/ci.yml`）。
 
-## 2. cargo-audit：工具真的跑了，数据库没拉下来
+## 2. cargo-audit：真实运行结果与一次网络失败
 
 脚本原来在工具缺失时打印 INFO 并退出 0；`pnpm verify` 与 CI 都会因此把“没审计”
 读成绿色。本轮：
@@ -36,20 +36,28 @@ CI 的 `cargo clippy` 步骤跑同一组 lint（`.github/workflows/ci.yml`）。
 
 本机实测（2026-10-30）：
 
-```
+```text
 cargo install cargo-audit --locked --version 0.22.2 --root .pack/tools   # 成功
 node scripts/rust-supply.mjs --require
-→ CANNOT DETERMINE: cargo-audit 输出不可解析
-→ could not fetch advisory database: git operation failed:
-   error sending request for url (https://github.com/RustSec/advisory-db.git/info/refs...)
-→ exit 2
+→ OK: cargo-audit 报告 0 条已知漏洞。                                      # exit 0
 ```
 
-结论：**审计本身没有结论**，原因是本机到 GitHub 的 git 传输失败（`api.github.com`
-的 HTTPS 请求可用，`github.com` 的 git smart-HTTP 不可用）。这不是“无漏洞”，也不是
-“有漏洞”。CI 的 runner 网络不同，步骤已接好，但本轮没有推送，**CI 结果未核实**。
-本地 `pnpm verify` 在默认模式下仍把这一态记为 INFO（不阻塞发布前的其他检查），
-只有 `--require` 才失败。
+同一会话里另一次 `pnpm verify` 的审计步骤遇到 GitHub advisory-db 的 git 传输失败
+（`failed to prepare fetch`），脚本按设计报 `CANNOT DETERMINE` 并以 INFO 退出；
+这不是“有漏洞”，也不是“干净”。为了把两种状态分开，又用已缓存的数据库做了一次
+不联网复核：
+
+```text
+cd src-tauri
+../.pack/tools/bin/cargo-audit audit --no-fetch --json
+→ vulnerabilities.count = 0
+→ database.advisory-count = 1386（advisory-db commit ee1a49a，2026-10-29）
+→ lockfile.dependency-count = 509
+```
+
+结论：**在缓存的 RustSec 数据库（1 386 条 advisory、509 个依赖）上为 0 条已知漏洞**；
+数据库刷新在本机不稳定，CI 的 `--require` 会强制“刷新失败即失败”。本轮未推送，
+**CI 结果未核实**。
 
 ## 3. Node 覆盖率基线
 
@@ -80,6 +88,7 @@ node scripts/rust-supply.mjs --require   # 需要能访问 RustSec advisory-db �
 ## 6. 未验证 / 遗留
 
 - CI 上 clippy 与 cargo-audit 步骤未实际运行（本轮未推送）；本地跑的是同一命令。
+  审计的“0 条”是缓存数据库读数，不是对 GitHub 最新 DB 的实时结论。
 - 45 条 clippy 风格/复杂度告警未清理；其中 `too_many_arguments` 是设计取舍，不是
   待办清单上的机械项。
 - 覆盖率未按目录设阈值；`src-tauri` 没有 JS 覆盖率口径，Rust 侧靠 493 个

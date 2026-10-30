@@ -111,6 +111,31 @@ fn is_denied_name(path: &Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Reads a UTF-8 file with a hard byte ceiling.
+///
+/// `.devhub.json` is **attacker-controlled**: it travels inside a cloned
+/// repository, and `collect_repos` reads every marker it finds while walking the
+/// container. A 2 GB marker used to be loaded whole before serde saw it, so one
+/// hostile repository could turn "refresh the wall" into an out-of-memory kill.
+/// The cap is enforced while reading rather than from a prior `metadata` call:
+/// the file can grow between the two, and `Read::take` bounds what this process
+/// actually allocates either way. Configuration files get the same treatment for
+/// the same reason (a corrupt/hostile config should not decide how much memory
+/// startup allocates).
+pub(crate) fn read_text_capped(path: &Path, cap: u64) -> std::io::Result<String> {
+    use std::io::Read as _;
+    let file = std::fs::File::open(path)?;
+    let mut bytes = Vec::new();
+    file.take(cap + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > cap {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("文件超过 {cap} 字节上限"),
+        ));
+    }
+    String::from_utf8(bytes).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 /// Canonicalizes `target`, falling back to the nearest existing ancestor.
 ///
 /// A path whose leaf does not exist yet cannot be canonicalized, so for a write
@@ -422,6 +447,33 @@ mod tests {
 
     fn s(p: &Path) -> String {
         p.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn capped_read_accepts_a_small_file_and_refuses_a_large_one() {
+        let scratch = Scratch::new("cap");
+        let small = scratch.join("small.json");
+        std::fs::write(&small, "{\"ok\":true}").unwrap();
+        assert_eq!(
+            read_text_capped(&small, 64).unwrap(),
+            "{\"ok\":true}",
+            "a normal marker must keep reading"
+        );
+
+        let large = scratch.join("large.json");
+        std::fs::write(&large, "x".repeat(65)).unwrap();
+        let err = read_text_capped(&large, 64).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("64"), "the cap is named: {err}");
+    }
+
+    #[test]
+    fn capped_read_refuses_invalid_utf8() {
+        let scratch = Scratch::new("utf8");
+        let file = scratch.join("bad.json");
+        std::fs::write(&file, [0xff, 0xfe, 0x00]).unwrap();
+        let err = read_text_capped(&file, 64).unwrap_err();
+        assert_eq!(err.kind(), std::io::ErrorKind::InvalidData);
     }
 
     #[test]

@@ -19,6 +19,14 @@ use super::*;
 #[path = "crypto.rs"]
 mod crypto;
 
+/// Ceiling for the persisted config and its backup (1 MiB).
+///
+/// The file is local, but it is also user-editable and copied between machines;
+/// parsing is not a place to let the file's size decide startup memory. The
+/// recovery path already treats an unreadable main file as "try the backup", so
+/// an oversized file degrades exactly like a corrupt one.
+const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+
 // ---------------------------------------------------------------------------
 // Application settings (persisted)
 // ---------------------------------------------------------------------------
@@ -358,10 +366,11 @@ pub(crate) fn read_config() -> AppConfig {
             }
         }
     }
-    let main = std::fs::read_to_string(&p);
+    let main = crate::path_guard::read_text_capped(&p, MAX_CONFIG_BYTES);
     let main_missing = matches!(&main, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
     let main_text = main.as_deref().ok();
-    let backup_text = std::fs::read_to_string(config_backup_path()).ok();
+    let backup_text =
+        crate::path_guard::read_text_capped(&config_backup_path(), MAX_CONFIG_BYTES).ok();
     let recovered = recover_config(main_text, main_missing, backup_text.as_deref());
     set_config_read_state(recovered.source, recovered.error.clone());
     let mut cfg = recovered.cfg.unwrap_or_default();
@@ -430,11 +439,12 @@ pub(crate) fn usable_token(stored: &str) -> String {
 /// the user can act on; an absent file is still a normal first run.
 pub(crate) fn read_config_for_write() -> Result<AppConfig, String> {
     let p = config_path();
-    let main = std::fs::read_to_string(&p);
+    let main = crate::path_guard::read_text_capped(&p, MAX_CONFIG_BYTES);
     let main_missing = matches!(&main, Err(e) if e.kind() == std::io::ErrorKind::NotFound);
     let main_io_error = main.as_ref().err().map(|e| e.to_string());
     let main_text = main.as_deref().ok();
-    let backup_text = std::fs::read_to_string(config_backup_path()).ok();
+    let backup_text =
+        crate::path_guard::read_text_capped(&config_backup_path(), MAX_CONFIG_BYTES).ok();
     let recovered = recover_config(main_text, main_missing, backup_text.as_deref());
     match recovered.cfg {
         Some(cfg) => {

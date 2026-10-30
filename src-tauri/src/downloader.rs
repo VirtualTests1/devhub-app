@@ -997,9 +997,17 @@ pub(crate) enum MarkerFile {
     Corrupt,
 }
 
+/// Ceiling for a repository marker (256 KiB).
+///
+/// The marker travels with the clone, so it is the one JSON file in this app an
+/// outside party controls. A real marker is under a kilobyte (slug, port block,
+/// confirmed launch steps); the allowance is for hand-written annotations, not
+/// for a file that makes the wall's walk allocate without bound.
+const MAX_MARKER_BYTES: u64 = 256 * 1024;
+
 pub(crate) fn read_marker_strict(repo: &Path) -> Result<MarkerFile, String> {
     let path = marker_path(repo);
-    let text = match std::fs::read_to_string(&path) {
+    let text = match crate::path_guard::read_text_capped(&path, MAX_MARKER_BYTES) {
         Ok(t) => t,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(MarkerFile::Absent),
         Err(e) => return Ok(MarkerFile::Unreadable(e.to_string())),
@@ -5912,6 +5920,40 @@ mod tests {
         let l = after.launch.expect("launch config saved");
         assert_eq!(l.command, "npm run dev");
         assert!(l.user_confirmed);
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn an_oversized_marker_is_refused_without_losing_the_file() {
+        let d = std::env::temp_dir().join(format!(
+            "devhub-marker-cap-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|x| x.subsec_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+
+        let bytes = vec![b'x'; MAX_MARKER_BYTES as usize + 1];
+        std::fs::write(marker_path(&d), &bytes).unwrap();
+
+        // A hostile marker must not be parsed into the wall (and must not be
+        // silently rewritten from defaults either — the size cap is a refusal,
+        // not a repair).
+        assert!(read_marker(&d).is_none(), "an oversized marker has no identity");
+        match read_marker_strict(&d).unwrap() {
+            MarkerFile::Unreadable(msg) => assert!(msg.contains("上限"), "reason names the cap: {msg}"),
+            _ => panic!("expected Unreadable for an oversized marker"),
+        }
+        let err = update_marker(&d, |m| m.description = Some("x".into())).unwrap_err();
+        assert!(err.contains("读不到"), "write refusal is explained: {err}");
+        assert_eq!(
+            std::fs::metadata(marker_path(&d)).unwrap().len(),
+            bytes.len() as u64,
+            "the refused write must leave the original bytes alone"
+        );
         let _ = std::fs::remove_dir_all(&d);
     }
 

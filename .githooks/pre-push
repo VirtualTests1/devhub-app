@@ -1,0 +1,18 @@
+#!/bin/sh
+# Refuse to publish the local-only archive tags.
+#
+# The pre-public-reset history is kept locally under `archive/*` tags and one
+# `archive/...` branch so it stays recoverable. That history predates the public
+# cleanup: its commits carry a personal email and machine-local paths. A plain
+# `git push --tags` would publish all of it. Release tags (`v*`) and branches are
+# not affected.
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in
+    refs/tags/archive/*|refs/heads/archive/*)
+      echo "pre-push: refusing to publish local-only archive ref: $local_ref" >&2
+      echo "pre-push: keep the pre-reset history local; push only release tags (v*)." >&2
+      exit 1
+      ;;
+  esac
+done
+exit 0

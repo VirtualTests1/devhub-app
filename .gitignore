@@ -94,6 +94,7 @@ src-tauri/cache/
 # Agent working memory for this project (logs, dated notes). Machine-local
 # state, same class as .shots/ and .devroot*/ above — never repository content.
 .workbuddy/
+.zwork/
 
 # Clone-strategy benchmark scratch root (scripts/clone-bench.ps1). Holds real
 # fixture repositories, so it must never be committed.
@@ -110,15 +111,12 @@ src-tauri/cache/
 src-tauri/.sccache-cache/
 
 # Vendored sccache binary. Installed via `cargo install sccache --root
-# vendor/sccache` (see docs/r1-sccache.md). Machine-local build tooling, not
+# vendor/sccache` (see the r1 build-cache notes). Machine-local build tooling, not
 # source.
 vendor/sccache/
 
 # Vendored cargo-outdated binary (r21-R2-1). Installed via `cargo install
-# cargo-outdated --locked --root vendor/cargo-outdated` (docs/deps-ecosystems.md
-# §6.1). Machine-local probe tooling, same class as sccache: never source, never
-# committed — the exe alone is ~20 MB.
+# cargo-outdated --locked --root vendor/cargo-outdated` (see the dependency
+# ecosystem notes). Machine-local probe tooling, same class as sccache: never
+# source, never committed — the exe alone is ~20 MB.
 vendor/cargo-outdated/
-
-# Editor directories and files
-.vscode/*

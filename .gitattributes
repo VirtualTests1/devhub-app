@@ -1,0 +1,4 @@
+# POSIX shell hooks must keep LF: a CRLF shebang fails on Linux/macOS checkouts.
+# core.autocrlf=true (this machine and many Windows installs) would otherwise
+# rewrite `.githooks/*` to CRLF on checkout.
+.githooks/* text eol=lf

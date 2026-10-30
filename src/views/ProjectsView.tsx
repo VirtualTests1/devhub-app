@@ -244,6 +244,11 @@ const RepoTagsDialog = lazy(() =>
 const WallViewDialog = lazy(() =>
   import("../dialogs/WallViewDialog").then((m) => ({ default: m.WallViewDialog })),
 );
+// r33-D5: opened from the wall header, not from a card, so it is not in the
+// card-dialog preload list; the first click pays one chunk fetch.
+const CrossRepoGrepDialog = lazy(() =>
+  import("../dialogs/CrossRepoGrepDialog").then((m) => ({ default: m.CrossRepoGrepDialog })),
+);
 
 /**
  * Fetch the card dialogs after first paint, not during it. A fixed 1.5 s timer rather
@@ -351,6 +356,7 @@ export function ProjectsView({
   const [diagnoseSlug, setDiagnoseSlug] = useState<string | null>(null);
   // 「在项目中搜索」对话框（r21-N1-1）：与诊断同款的按-slug 挂载，卡片给它 root。
   const [grepSlug, setGrepSlug] = useState<string | null>(null);
+  const [crossGrepOpen, setCrossGrepOpen] = useState(false);
   const [filesSlug, setFilesSlug] = useState<string | null>(null);
   /** Which card the read-only 提交历史 dialog is open on (r32-N4). */
   const [commitsSlug, setCommitsSlug] = useState<string | null>(null);
@@ -1478,6 +1484,16 @@ export function ProjectsView({
         count={repos.length}
         hint={t("wall.view.hint")}
         headerId="projects-header"
+        actions={
+          <button
+            type="button"
+            onClick={() => setCrossGrepOpen(true)}
+            className="skin-ctl inline-flex shrink-0 items-center gap-1 border border-border px-2 py-1 text-caption text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            <FileSearch className="h-3.5 w-3.5" />
+            {t("grep.batch.open")}
+          </button>
+        }
       />
 
       {wallRecoveredAt !== null && (
@@ -2170,6 +2186,12 @@ export function ProjectsView({
           onClose={() => setTagsSlug(null)}
         />
       )}
+
+      <CrossRepoGrepDialog
+        open={crossGrepOpen}
+        slugs={cards.map((c) => c.slug)}
+        onClose={() => setCrossGrepOpen(false)}
+      />
 
       {viewDialog && (
         <WallViewDialog

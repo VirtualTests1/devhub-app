@@ -2322,6 +2322,17 @@ const ZH = {
   "freshness.notReachedDetail": "批量检查有并发与数量上限，这次没轮到它；再查一次通常就有结果。此状态不代表「与远程一致」",
   "shell.skipToContent": "跳到主要内容",
   "shell.viewAnnounce": "已切换到{view}",
+  "grep.batch.open": "在所有项目中搜索…",
+  "grep.batch.title": "在所有项目中搜索",
+  "grep.batch.subtitle": "{n} 个仓库 · 只返回行级命中",
+  "grep.batch.placeholder": "正则，例如 TODO|FIXME",
+  "grep.batch.summary": "{repos} 个仓库有命中 · {hits} 行 · 扫描 {files} 个文件 · {ms} ms",
+  "grep.batch.partial": "结果被上限或超时截断；没扫完的部分不代表没有命中。",
+  "grep.batch.failedRepos": "{n} 个仓库没有扫成：{list}",
+  "grep.batch.noHits": "扫描了 {repos} 个仓库，没有行匹配。这是查过之后的结论，不是没查成。",
+  "grep.batch.hiddenHits": "另有 {n} 行未显示",
+  "grep.batch.hiddenGroups": "另有 {n} 个仓库的结果未显示",
+  "grep.batch.skippedRepos": "另有 {n} 个仓库超出单次上限，未参与本次搜索。",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

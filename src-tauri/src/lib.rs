@@ -4602,6 +4602,7 @@ pub fn run() {
             repo_freshness,
             repo_freshness_many,
             searchgrep::repo_grep,
+            searchgrep::repo_grep_many,
             files::repo_files,
             deps::check_dependencies,
             docker::docker_status,

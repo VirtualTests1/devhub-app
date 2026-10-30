@@ -83,44 +83,56 @@ pub fn repo_grep(
     case_insensitive: Option<bool>,
     limit: Option<usize>,
 ) -> GrepResult {
-    let start = Instant::now();
-    let limit = limit.unwrap_or(500);
-    let ci = case_insensitive.unwrap_or(false);
+    grep_root(
+        Path::new(&root),
+        &root,
+        &pattern,
+        case_insensitive.unwrap_or(false),
+        limit.unwrap_or(500),
+        None,
+    )
+}
 
-    // 先尝试编译正则，失败直接返回。
-    let re = match Regex::new(&if ci {
-        format!("(?i){pattern}")
-    } else {
-        pattern.clone()
-    }) {
-        Ok(r) => r,
+/// One repository's scan, shared by the single-root command and the batch one.
+///
+/// `deadline` is checked before each file; the batch path uses it so one huge
+/// repository cannot hold the whole request, while the single-root command keeps
+/// its original "scan what the user named" semantics (`None`).
+pub(crate) fn grep_root(
+    root_path: &Path,
+    root_label: &str,
+    pattern: &str,
+    ci: bool,
+    limit: usize,
+    deadline: Option<Instant>,
+) -> GrepResult {
+    let start = Instant::now();
+    let re = match compile_pattern(pattern, ci) {
+        Ok(re) => re,
         Err(e) => {
             return GrepResult {
-                pattern,
-                root,
+                pattern: pattern.to_string(),
+                root: root_label.to_string(),
                 files_scanned: 0,
                 files_skipped: 0,
                 hits: vec![],
                 elapsed_ms: start.elapsed().as_millis(),
-                error: Some(format!("正则编译失败：{e}")),
+                error: Some(e),
             };
         }
     };
 
-    if !Path::new(&root).is_dir() {
-        let err_msg = format!("目录不存在：{root}");
+    if !root_path.is_dir() {
         return GrepResult {
-            pattern,
-            root,
+            pattern: pattern.to_string(),
+            root: root_label.to_string(),
             files_scanned: 0,
             files_skipped: 0,
             hits: vec![],
             elapsed_ms: start.elapsed().as_millis(),
-            error: Some(err_msg),
+            error: Some(format!("目录不存在：{root_label}")),
         };
     }
-
-    let root_path = Path::new(&root);
 
     // 收集候选文件路径——WalkDir + 过滤目录 + 过滤扩展名。
     //
@@ -152,15 +164,196 @@ pub fn repo_grep(
         .map(|e| e.into_path())
         .collect();
 
-    let (hits, scanned, skipped) = scan_candidates(candidates, &re, root_path, limit);
+    let (hits, scanned, skipped) = scan_candidates(candidates, &re, root_path, limit, deadline);
 
     GrepResult {
-        pattern,
-        root,
+        pattern: pattern.to_string(),
+        root: root_label.to_string(),
         files_scanned: scanned,
         files_skipped: skipped,
         hits,
         elapsed_ms: start.elapsed().as_millis(),
+        error: None,
+    }
+}
+
+/// Compile once per request, with the case flag carried by the pattern.
+fn compile_pattern(pattern: &str, ci: bool) -> Result<Regex, String> {
+    Regex::new(&if ci {
+        format!("(?i){pattern}")
+    } else {
+        pattern.to_string()
+    })
+    .map_err(|e| format!("正则编译失败：{e}"))
+}
+
+/// Bounds for the cross-repository command. Every one of these is a number the
+/// UI can explain when it truncates; none is a silent clamp.
+pub(crate) const BATCH_MAX_REPOS: usize = 200;
+pub(crate) const BATCH_PER_REPO_HITS: usize = 50;
+pub(crate) const BATCH_TOTAL_HITS: usize = 1000;
+const BATCH_DEADLINE_MS: u64 = 15_000;
+
+#[derive(serde::Serialize, Debug)]
+pub struct GrepGroup {
+    pub slug: String,
+    pub root: String,
+    pub files_scanned: usize,
+    pub files_skipped: usize,
+    pub hits: Vec<GrepHit>,
+    pub error: Option<String>,
+}
+
+#[derive(serde::Serialize, Debug)]
+pub struct GrepBatchResult {
+    pub pattern: String,
+    pub groups: Vec<GrepGroup>,
+    pub total_hits: usize,
+    pub files_scanned: usize,
+    pub files_skipped: usize,
+    pub elapsed_ms: u128,
+    /// One of the caps stopped the scan; the groups still say what was found.
+    pub truncated: bool,
+    /// The deadline expired before every repository was reached.
+    pub timed_out: bool,
+    pub repositories_skipped: usize,
+    pub error: Option<String>,
+}
+
+/// Cross-repository search with a per-request budget.
+///
+/// Deliberately **not** the search-relevance path: this returns every matching
+/// line in every named repository, and the caller asked for that scope. The
+/// bakeoff that ruled `repo_grep` out for ranking (r21-N1) still holds — this
+/// command is not a ranking source and the UI labels it as a line search.
+#[tauri::command(async)]
+pub fn repo_grep_many(
+    slugs: Vec<String>,
+    pattern: String,
+    case_insensitive: Option<bool>,
+    per_repo_limit: Option<usize>,
+    total_limit: Option<usize>,
+) -> GrepBatchResult {
+    let start = Instant::now();
+    let roots = crate::project_roots();
+    let skipped = slugs.len().saturating_sub(BATCH_MAX_REPOS);
+    let entries: Vec<(String, PathBuf)> = slugs
+        .into_iter()
+        .take(BATCH_MAX_REPOS)
+        .map(|slug| {
+            let path = crate::repo_index::find(&roots, &slug).0;
+            (slug, path.unwrap_or_default())
+        })
+        .collect();
+    let per_repo = per_repo_limit
+        .unwrap_or(BATCH_PER_REPO_HITS)
+        .clamp(1, BATCH_PER_REPO_HITS);
+    let total = total_limit.unwrap_or(BATCH_TOTAL_HITS).clamp(1, BATCH_TOTAL_HITS);
+    let deadline = start + std::time::Duration::from_millis(BATCH_DEADLINE_MS);
+    let mut out = grep_many_roots(
+        entries,
+        &pattern,
+        case_insensitive.unwrap_or(false),
+        total,
+        per_repo,
+        deadline,
+    );
+    out.repositories_skipped += skipped;
+    out
+}
+
+/// The testable batch core: paths in, bounded groups out.
+pub(crate) fn grep_many_roots(
+    entries: Vec<(String, PathBuf)>,
+    pattern: &str,
+    ci: bool,
+    total_limit: usize,
+    per_repo_limit: usize,
+    deadline: Instant,
+) -> GrepBatchResult {
+    let start = Instant::now();
+    if let Err(e) = compile_pattern(pattern, ci) {
+        return GrepBatchResult {
+            pattern: pattern.to_string(),
+            groups: Vec::new(),
+            total_hits: 0,
+            files_scanned: 0,
+            files_skipped: 0,
+            elapsed_ms: start.elapsed().as_millis(),
+            truncated: false,
+            timed_out: false,
+            repositories_skipped: 0,
+            error: Some(e),
+        };
+    }
+
+    let mut groups = Vec::new();
+    let mut total_hits = 0usize;
+    let mut files_scanned = 0usize;
+    let mut files_skipped = 0usize;
+    let mut timed_out = false;
+    let mut truncated = false;
+
+    for (slug, path) in entries {
+        if Instant::now() >= deadline {
+            timed_out = true;
+            break;
+        }
+        if total_hits >= total_limit {
+            truncated = true;
+            break;
+        }
+        if path.as_os_str().is_empty() {
+            groups.push(GrepGroup {
+                slug: slug.clone(),
+                root: String::new(),
+                files_scanned: 0,
+                files_skipped: 0,
+                hits: Vec::new(),
+                error: Some("未找到仓库".to_string()),
+            });
+            continue;
+        }
+        let remaining = (total_limit - total_hits).min(per_repo_limit);
+        let mut result = grep_root(
+            &path,
+            &path.to_string_lossy(),
+            pattern,
+            ci,
+            remaining,
+            Some(deadline),
+        );
+        let expired = Instant::now() >= deadline;
+        if result.hits.len() >= remaining {
+            truncated = true;
+        }
+        total_hits += result.hits.len();
+        files_scanned += result.files_scanned;
+        files_skipped += result.files_skipped;
+        groups.push(GrepGroup {
+            slug,
+            root: result.root,
+            files_scanned: result.files_scanned,
+            files_skipped: result.files_skipped,
+            hits: std::mem::take(&mut result.hits),
+            error: result.error,
+        });
+        if expired {
+            timed_out = true;
+            break;
+        }
+    }
+
+    GrepBatchResult {
+        pattern: pattern.to_string(),
+        groups,
+        total_hits,
+        files_scanned,
+        files_skipped,
+        elapsed_ms: start.elapsed().as_millis(),
+        truncated,
+        timed_out,
+        repositories_skipped: 0,
         error: None,
     }
 }
@@ -214,6 +407,7 @@ fn scan_candidates(
     re: &Regex,
     root: &Path,
     limit: usize,
+    deadline: Option<Instant>,
 ) -> (Vec<GrepHit>, usize, usize) {
     if candidates.is_empty() || limit == 0 {
         return (Vec::new(), 0, 0);
@@ -234,6 +428,9 @@ fn scan_candidates(
                     let mut skipped = 0usize;
                     let mut hits = Vec::new();
                     for path in chunk {
+                        if deadline.is_some_and(|d| Instant::now() >= d) {
+                            break;
+                        }
                         scanned += 1;
                         let (found, refused) = scan_file(re, path, root);
                         if refused {
@@ -311,9 +508,9 @@ let x = {i};
         let s = Scratch::new("order");
         let re = Regex::new("fn hit_").unwrap();
         let files = candidates(&s.0);
-        let (serial, serial_scanned, _) = scan_candidates(files.clone(), &re, &s.0, 1000);
+        let (serial, serial_scanned, _) = scan_candidates(files.clone(), &re, &s.0, 1000, None);
         // Force a second scanning shape by asking for 3 threads' worth of chunks via a small limit.
-        let (limited, _, _) = scan_candidates(files, &re, &s.0, 5);
+        let (limited, _, _) = scan_candidates(files, &re, &s.0, 5, None);
         assert_eq!(serial.len(), 12);
         assert_eq!(limited.len(), 5);
         assert_eq!(serial_scanned, 12);
@@ -375,6 +572,69 @@ let x = {i};
         );
     }
     #[test]
+    fn batch_search_groups_by_repository_and_respects_caps() {
+        let a = Scratch::new("batch-a");
+        let b = Scratch::new("batch-b");
+        let deadline = Instant::now() + std::time::Duration::from_secs(30);
+        let out = grep_many_roots(
+            vec![
+                ("owner/a".to_string(), a.0.clone()),
+                ("owner/b".to_string(), b.0.clone()),
+                ("owner/missing".to_string(), PathBuf::new()),
+            ],
+            "fn hit_",
+            false,
+            1000,
+            5,
+            deadline,
+        );
+
+        assert_eq!(out.groups.len(), 3);
+        assert_eq!(out.groups[0].hits.len(), 5, "the per-repo cap must hold");
+        assert_eq!(out.groups[1].hits.len(), 5);
+        assert_eq!(out.total_hits, 10, "the total is what the groups actually carry");
+        assert!(out.truncated, "reaching the per-repo cap is a visible truncation");
+        assert_eq!(
+            out.groups[2].error.as_deref(),
+            Some("未找到仓库"),
+            "a slug with no path is its own row, not a silent omission"
+        );
+        assert!(out.groups[0].hits.iter().all(|h| h.file.starts_with("src")));
+    }
+
+    #[test]
+    fn batch_search_reports_an_invalid_pattern_once() {
+        let s = Scratch::new("batch-invalid");
+        let out = grep_many_roots(
+            vec![("owner/a".to_string(), s.0.clone())],
+            "(",
+            false,
+            10,
+            10,
+            Instant::now() + std::time::Duration::from_secs(30),
+        );
+        assert!(out.error.as_deref().unwrap_or("").contains("正则编译失败"));
+        assert!(out.groups.is_empty(), "nothing is scanned when the pattern cannot compile");
+    }
+
+    #[test]
+    fn an_expired_batch_deadline_stops_before_the_first_repository() {
+        let s = Scratch::new("batch-deadline");
+        let out = grep_many_roots(
+            vec![("owner/a".to_string(), s.0.clone())],
+            "fn hit_",
+            false,
+            1000,
+            50,
+            Instant::now() - std::time::Duration::from_secs(1),
+        );
+        assert!(out.timed_out);
+        assert_eq!(out.total_hits, 0);
+        assert!(out.groups.is_empty());
+        assert!(out.error.is_none(), "a timeout is a boundary, not a broken pattern");
+    }
+
+    #[test]
     #[ignore = "benchmark; run with --ignored --nocapture"]
     fn bench_parallel_vs_serial_on_this_crate() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
@@ -387,7 +647,7 @@ let x = {i};
         }
         let serial_ms = t0.elapsed().as_millis();
         let t1 = std::time::Instant::now();
-        let (parallel, _, _) = scan_candidates(files.clone(), &re, &root, 100_000);
+        let (parallel, _, _) = scan_candidates(files.clone(), &re, &root, 100_000, None);
         let parallel_ms = t1.elapsed().as_millis();
         println!("grep files={} hits={} serial={}ms parallel={}ms", files.len(), serial.len(), serial_ms, parallel_ms);
         assert_eq!(serial.len(), parallel.len(), "same candidate set and regex must find the same hits");

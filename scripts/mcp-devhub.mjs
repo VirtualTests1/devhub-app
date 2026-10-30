@@ -1,6 +1,10 @@
 // mcp-devhub.mjs — 把 DevHub 的项目容器暴露成一个 MCP (Model Context Protocol) 服务器。
 //
-// 传输：stdio。协议修订：2025-06-18（本文件能引用到的最新一版，逐页核对过，出处见下）。
+// 传输：stdio。协议修订：**2025-11-25**（2026-10-30 抓取官方规范确认存在；2025-06-18
+// 仍被协商接受，见 SUPPORTED_PROTOCOL_VERSIONS）。2025-11-25 的变更（官方 changelog）：
+// stdio 服务器可用 stderr 记录、tools/resources/prompts 可带 icons、elicitation 支持带标题/
+// 默认值的枚举。本服务器不实现 icons（没有图标资产）与 elicitation（不向用户提问），wire shape
+// 未变；下面的规范引用仍指向 2025-06-18 页面，因为这些章节在该修订中未被改写。
 //
 // 零依赖是刻意的，不是偷懒：本仓库的 `node_modules` 在 linked worktree 里是指向根 checkout
 // 的 junction，任何 `pnpm add` 都会重写别人正在用的 `.bin` shim（DEVELOPMENT.md 验证矩阵、
@@ -88,6 +92,7 @@
 // `--root` 排在最前，是为了让测试能指向一个夹具根而不必改任何机器状态。
 
 import { createInterface } from "node:readline";
+import { spawnSync } from "node:child_process";
 import { existsSync, lstatSync, readFileSync, readdirSync, statSync, unwatchFile, watchFile } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -100,9 +105,17 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  */
 const REPO_ROOT = resolve(HERE, "..");
 
-/** The only revision this server claims; see the header citations. */
-const PROTOCOL_REVISION = "2025-06-18";
-const SUPPORTED_PROTOCOL_VERSIONS = [PROTOCOL_REVISION];
+/**
+ * The revision this server claims as its latest, and the old one it still answers.
+ *
+ * 2025-11-25 adds icons on tools/resources/prompts and titled/untitled elicitation
+ * enums with defaults; none of those is implemented here (there is no icon asset and
+ * no elicitation), but the wire shape this server speaks is unchanged. Keeping
+ * 2025-06-18 in the list lets an older client negotiate the revision it understands,
+ * which the lifecycle section explicitly requires.
+ */
+const PROTOCOL_REVISION = "2025-11-25";
+const SUPPORTED_PROTOCOL_VERSIONS = [PROTOCOL_REVISION, "2025-06-18"];
 
 /** JSON-RPC 2.0 predefined codes (the MCP `basic/index` page carries no table — see header). */
 const ERR = {
@@ -789,6 +802,147 @@ function repoHealthOf(record, options = {}) {
   };
 }
 
+
+const GIT_LOG_TIMEOUT_MS = 8_000;
+
+/**
+ * Read the newest commits with `git log`, never with a shell.
+ *
+ * `--no-pager` is not decoration: a configured pager would wait for a human on a
+ * stdio process that has no terminal. `spawnSync` gets an argument array, so a
+ * repository path containing a quote or `&` is a path, not syntax.
+ */
+function readCommits(record, limit) {
+  if (!existsSync(join(record.path, ".git"))) {
+    return { state: "no-git", commits: [], detail: "目录里没有 .git（压缩包下载或手工复制）" };
+  }
+  const result = spawnSync(
+    "git",
+    ["--no-pager", "-C", record.path, "log", "-n", String(limit), "--format=%H%x09%h%x09%an%x09%aI%x09%s"],
+    { encoding: "utf8", timeout: GIT_LOG_TIMEOUT_MS, maxBuffer: 1 << 20, windowsHide: true },
+  );
+  if (result.error) {
+    return { state: "error", commits: [], detail: `git 无法启动或超时：${result.error.message}` };
+  }
+  const stderr = String(result.stderr ?? "").trim();
+  if (result.status !== 0) {
+    if (/does not have any commits|unknown revision|bad revision|ambiguous argument/i.test(stderr)) {
+      return { state: "empty", commits: [], detail: "空仓库或没有可读历史" };
+    }
+    return { state: "error", commits: [], detail: stderr || `git log 退出码 ${result.status}` };
+  }
+  const commits = [];
+  for (const line of String(result.stdout ?? "").split("\n")) {
+    if (!line.trim()) continue;
+    const parts = [];
+    let rest = line;
+    for (let i = 0; i < 4; i += 1) {
+      const at = rest.indexOf("\t");
+      if (at === -1) break;
+      parts.push(rest.slice(0, at));
+      rest = rest.slice(at + 1);
+    }
+    if (parts.length < 4) continue;
+    commits.push({ hash: parts[0], short: parts[1], author: parts[2], date: parts[3], subject: rest });
+  }
+  return { state: "ok", commits, detail: null };
+}
+
+const SEARCH_SKIP_DIRS = new Set([
+  ".git", "node_modules", "target", "dist", "build", ".next", ".nuxt", ".venv", "venv",
+  "__pycache__", ".idea", ".vscode", ".worktrees", "cache",
+]);
+const SEARCH_MAX_FILE_BYTES = 1_048_576;
+const SEARCH_MAX_FILES = 2_000;
+const SEARCH_MAX_HITS = 200;
+const SEARCH_MAX_REPOS = 100;
+const SEARCH_MAX_MS = 10_000;
+const SEARCH_MAX_DEPTH = 8;
+
+/** One repository's text scan; called by `devhub_search_local`. Read-only. */
+function searchRepo(record, matcher, budget) {
+  const hits = [];
+  let filesScanned = 0;
+  let filesSkipped = 0;
+  const deadline = budget.started + SEARCH_MAX_MS;
+  let timedOut = false;
+
+  function visit(dir, depth) {
+    if (budget.truncated) return;
+    if (Date.now() >= deadline) return;
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    entries.sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    for (const entry of entries) {
+      if (budget.hits.length >= SEARCH_MAX_HITS) {
+        budget.truncated = true;
+        return;
+      }
+      if (Date.now() >= deadline) {
+        timedOut = true;
+        return;
+      }
+      if (entry.isSymbolicLink()) continue;
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        if (depth < SEARCH_MAX_DEPTH && !SEARCH_SKIP_DIRS.has(entry.name) && !String(entry.name).startsWith(".")) {
+          visit(full, depth + 1);
+        }
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (filesScanned + filesSkipped >= SEARCH_MAX_FILES) {
+        budget.truncated = true;
+        return;
+      }
+      let meta;
+      try {
+        meta = statSync(full);
+      } catch {
+        continue;
+      }
+      if (meta.size > SEARCH_MAX_FILE_BYTES) {
+        filesSkipped += 1;
+        continue;
+      }
+      let bytes;
+      try {
+        bytes = readFileSync(full);
+      } catch {
+        continue;
+      }
+      filesScanned += 1;
+      if (bytes.subarray(0, 8192).includes(0)) {
+        filesSkipped += 1;
+        continue;
+      }
+      const text = bytes.toString("utf8");
+      const lines = text.split(/\r?\n/);
+      for (let i = 0; i < lines.length; i += 1) {
+        if (matcher(lines[i])) {
+          budget.hits.push({
+            slug: record.slug,
+            file: full.slice(record.path.length + 1).replace(/\\/g, "/"),
+            line: i + 1,
+            content: lines[i].length > 400 ? `${lines[i].slice(0, 400)}…` : lines[i],
+          });
+          if (budget.hits.length >= SEARCH_MAX_HITS) {
+            budget.truncated = true;
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  visit(record.path, 0);
+  return { hits, filesScanned, filesSkipped, timedOut };
+}
+
 const READ_ONLY_TOOLS = [
   {
     name: "devhub_list_repos",
@@ -1096,6 +1250,120 @@ const READ_ONLY_TOOLS = [
         unreadableDirectories: scan.unreadable,
         ignoredDirectories: scan.ignored,
         ambiguousDirectories: found.ambiguous,
+      });
+    },
+  },
+  {
+    name: "devhub_repo_commits",
+    title: "读取仓库最近提交",
+    description:
+      "对一个仓库运行只读的 git log，返回最新的哈希、短哈希、作者、日期与主题。不 fetch、不 checkout、不写引用；没有 .git 的目录返回 no-git，空仓库返回 empty（两者都不是错误）。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        slug: SLUG_PARAM,
+        limit: { type: "integer", minimum: 1, maximum: 50, description: "最多返回多少条，默认 20。" },
+      },
+      required: ["slug"],
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    call: (args) => {
+      const found = requireOne(args?.slug, "devhub_repo_commits");
+      const limit = Number.isInteger(args?.limit) ? Math.min(Math.max(args.limit, 1), 50) : 20;
+      const answer = readCommits(found.record, limit);
+      return jsonResult({
+        repository: found.record.name,
+        slug: found.record.slug,
+        path: found.record.path,
+        limit,
+        ...answer,
+        ambiguousDirectories: found.ambiguous,
+      });
+    },
+  },
+  {
+    name: "devhub_search_local",
+    title: "在本地仓库内容中搜索",
+    description:
+      "在容器里的一个仓库或全部仓库（上限 100 个）中按行搜索文本；默认按字面量、忽略大小写，可选正则。只读，不写入、不发网络请求；跳过 .git/node_modules/target 等目录、二进制与超过 1 MiB 的文件。命中上限 200 行、扫描上限 2 000 个文件、时间上限 10 秒，任一触顶都会在 truncated/timedOut 里说明。",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "要查找的文本；非空。" },
+        slug: { type: "string", description: "只搜索这个仓库；省略时搜索容器中的所有仓库（上限 100 个）。" },
+        regex: { type: "boolean", description: "true 时把 query 当作 JavaScript 正则；默认 false（字面量）。" },
+        caseInsensitive: { type: "boolean", description: "默认 true；设为 false 时区分大小写。" },
+      },
+      required: ["query"],
+      additionalProperties: false,
+    },
+    annotations: READ_ONLY_ANNOTATIONS,
+    call: (args) => {
+      const query = typeof args?.query === "string" ? args.query : "";
+      if (query === "") throw new ProtocolError("devhub_search_local: query 必须是非空字符串");
+      const regex = args?.regex === true;
+      const ci = args?.caseInsensitive !== false;
+      let matcher;
+      try {
+        if (regex) {
+          const re = new RegExp(query, ci ? "i" : "");
+          matcher = (line) => re.test(line);
+        } else {
+          const needle = ci ? query.toLowerCase() : query;
+          matcher = (line) => (ci ? line.toLowerCase() : line).includes(needle);
+        }
+      } catch (error) {
+        throw new ProtocolError(`devhub_search_local: 正则无效：${error.message}`);
+      }
+      let records;
+      let scope;
+      if (typeof args?.slug === "string" && args.slug.trim() !== "") {
+        const found = requireOne(args.slug, "devhub_search_local");
+        records = [found.record];
+        scope = "one";
+      } else {
+        const { repos } = scanFresh();
+        records = repos
+          .map((entry) => toRecord(entry, { detail: false }))
+          .filter((record) => typeof record.path === "string")
+          .slice(0, SEARCH_MAX_REPOS);
+        scope = records.length < repos.length ? "all-capped" : "all";
+      }
+      const budget = { hits: [], truncated: false, started: Date.now() };
+      let filesScanned = 0;
+      let filesSkipped = 0;
+      let timedOut = false;
+      for (const record of records) {
+        if (budget.hits.length >= SEARCH_MAX_HITS || Date.now() - budget.started >= SEARCH_MAX_MS) {
+          budget.truncated = true;
+          break;
+        }
+        const part = searchRepo(record, matcher, budget);
+        filesScanned += part.filesScanned;
+        filesSkipped += part.filesSkipped;
+        timedOut = timedOut || part.timedOut;
+      }
+      return jsonResult({
+        containerRoot: state.root,
+        query,
+        regex,
+        caseInsensitive: ci,
+        scope,
+        repositoriesScanned: records.length,
+        filesScanned,
+        filesSkipped,
+        count: budget.hits.length,
+        hits: budget.hits.slice(0, SEARCH_MAX_HITS),
+        truncated: budget.truncated || budget.hits.length >= SEARCH_MAX_HITS,
+        timedOut,
+        limits: {
+          maxRepos: SEARCH_MAX_REPOS,
+          maxFiles: SEARCH_MAX_FILES,
+          maxHits: SEARCH_MAX_HITS,
+          maxFileBytes: SEARCH_MAX_FILE_BYTES,
+          maxMs: SEARCH_MAX_MS,
+        },
       });
     },
   },
@@ -1409,6 +1677,37 @@ const OUTPUT_SCHEMAS = {
       ambiguousDirectories: STR_ARR,
     },
     ["repository", "path", "state", "entries", "count", "truncated"],
+  ),
+  devhub_repo_commits: obj(
+    {
+      repository: STR,
+      slug: STR,
+      path: STR,
+      limit: INT,
+      state: STR,
+      commits: OBJ_ARR,
+      detail: { type: ["string", "null"] },
+      ambiguousDirectories: STR_ARR,
+    },
+    ["repository", "slug", "path", "state", "commits"],
+  ),
+  devhub_search_local: obj(
+    {
+      containerRoot: STR,
+      query: STR,
+      regex: BOOL,
+      caseInsensitive: BOOL,
+      scope: STR,
+      repositoriesScanned: INT,
+      filesScanned: INT,
+      filesSkipped: INT,
+      count: INT,
+      hits: OBJ_ARR,
+      truncated: BOOL,
+      timedOut: BOOL,
+      limits: OBJ,
+    },
+    ["containerRoot", "query", "scope", "count", "hits", "truncated", "timedOut"],
   ),
   devhub_launch_plan: obj(
     { containerRoot: STR, repository: STR, path: STR, plan: OBJ, markerState: STR, executed: BOOL },

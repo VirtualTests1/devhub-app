@@ -24,7 +24,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 import { at } from "./helpers/definite.ts";
@@ -81,6 +81,8 @@ const READ_ONLY_TOOLS = [
   "devhub_repo_readme",
   "devhub_repo_headings",
   "devhub_repo_files",
+  "devhub_repo_commits",
+  "devhub_search_local",
 ];
 const PLAN_TOOLS = ["devhub_launch_plan", "devhub_stop_plan"];
 
@@ -169,6 +171,25 @@ writeFileSync(
 // gamma: a *directory* named README.md — existsSync says yes, the read fails, and the
 // server must answer `unreadable`, not collapse it into `absent` (the MarkerFile bug).
 mkdirSync(join(GAMMA_BROKEN, "README.md"), { recursive: true });
+
+// devhub_repo_commits fixture: a real one-commit repository, created once and reused on
+// later runs. The commit hash is not asserted — it changes with the clock — only that a
+// real `git log` produced the subject and author.
+const HIST = writeFixture(
+  "hist_owner",
+  JSON.stringify({ slug: "github.com/acme/hist", portBase: 21040, services: [] }),
+);
+if (!existsSync(join(HIST, ".git"))) {
+  writeFileSync(join(HIST, "history.txt"), "first\n");
+  spawnSync("git", ["init", "-q", HIST]);
+  spawnSync("git", ["-C", HIST, "add", "."]);
+  spawnSync("git", [
+    "-C", HIST,
+    "-c", "user.name=Fixture",
+    "-c", "user.email=fixture@example.invalid",
+    "commit", "-q", "-m", "fixture subject",
+  ]);
+}
 
 // devhub_repo_files fixtures: a small source tree, an ignored dependency directory and a
 // deep chain. The ignored directory exists so the test can prove it is skipped rather
@@ -322,7 +343,7 @@ test("initialize: 客户端要的版本不支持时，服务器改答自己最�
   const { frames, spawnError } = runServer(containerArgs(), [asked]);
   assert.equal(spawnError, "", "子进程必须起得来");
   const init = asRecord(at(frames, 0).result, "initialize result");
-  assert.equal(init.protocolVersion, "2025-06-18", "规范要求回自己支持的最新版本");
+  assert.equal(init.protocolVersion, "2025-11-25", "规范要求回自己支持的最新版本");
 });
 
 // ---------------------------------------------------------------------------
@@ -429,10 +450,10 @@ test("tools/call devhub_list_repos 命中夹具容器：marker 目录进、保�
   const payload = structured(at(frames, 1));
   assert.equal(payload.containerRoot, CONTAINER);
   assert.equal(payload.rootSource, "--root");
-  assert.equal(payload.count, 5, "alpha/beta/delta/gamma/epsilon 五个带标记的目录");
+  assert.equal(payload.count, 6, "alpha/beta/delta/gamma/epsilon/hist 六个带标记的目录");
   const repositories = payload.repositories as Json[];
   const names = repositories.map((r) => String(r.name)).sort();
-  assert.deepEqual(names, ["alpha_owner", "beta_owner", "delta_owner", "epsilon_owner", "gamma_broken"]);
+  assert.deepEqual(names, ["alpha_owner", "beta_owner", "delta_owner", "epsilon_owner", "gamma_broken", "hist_owner"]);
   const alpha = repositories.find((r) => r.name === "alpha_owner");
   assert.ok(alpha, "alpha_owner 必须被列出");
   assert.equal(alpha.slug, "github.com/acme/alpha");
@@ -847,12 +868,12 @@ test("r26 health: 单仓库判定与容器总览都只读、issue code 稳定", 
   assert.ok((gamma.issues as Json[]).some((i) => i.code === "marker_invalid"));
 
   const container = structured(at(frames, 3));
-  assert.equal(container.repoCount, 5, "五个带 marker 的夹具仓库；venvs 保留目录与无标记目录不算");
+  assert.equal(container.repoCount, 6, "六个带 marker 的夹具仓库；venvs 保留目录与无标记目录不算");
   const by = asRecord(container.byVerdict, "byVerdict");
   assert.equal(Number(by.unusable), 1);
-  assert.equal(Number(by.attention) + Number(by.ok) + Number(by.unusable), 5);
+  assert.equal(Number(by.attention) + Number(by.ok) + Number(by.unusable), 6);
   assert.equal(asRecord(container.issueCounts, "issueCounts").marker_invalid, 1);
-  assert.equal((container.repositories as Json[]).length, 5);
+  assert.equal((container.repositories as Json[]).length, 6);
 
   const missing = at(frames, 4);
   assert.ok(missing.error);
@@ -980,4 +1001,55 @@ test("r26 subscribe: 没有 README 的资源不可订阅；退订未知 URI 幂�
   assert.deepEqual(at(frames, 2).result, {});
   assert.deepEqual(at(frames, 3).result, {});
   assert.deepEqual(at(frames, 4).result, {}, "unsubscribe of an unknown URI is a no-op success");
+});
+
+test("tools/call devhub_repo_commits：真实 git log、无 .git 与错误 slug 三态", () => {
+  const { frames } = runServer(containerArgs(), [
+    INITIALIZE,
+    request(2, "tools/call", { name: "devhub_repo_commits", arguments: { slug: "acme/hist" } }),
+    request(3, "tools/call", { name: "devhub_repo_commits", arguments: { slug: "alpha" } }),
+    request(4, "tools/call", { name: "devhub_repo_commits", arguments: { slug: "no/such/repo" } }),
+  ]);
+  const ok = structured(frames[1]);
+  assert.equal(ok.state, "ok");
+  const commits = ok.commits as Json[];
+  assert.equal(commits.length, 1);
+  assert.equal(commits[0].subject, "fixture subject");
+  assert.equal(commits[0].author, "Fixture");
+  assert.match(String(commits[0].hash), /^[0-9a-f]{40}$/);
+  assert.match(String(commits[0].date), /^\d{4}-\d{2}-\d{2}T/);
+
+  assert.equal(structured(frames[2]).state, "no-git", "a cloned archive must not look empty");
+  assert.equal(structured(frames[2]).commits.length, 0);
+  assert.equal(errorOf(frames[3]).code, -32602, "an unknown slug is a params error");
+});
+
+test("tools/call devhub_search_local：字面量搜索、忽略目录、单仓库范围与非法正则", () => {
+  const { frames } = runServer(containerArgs(), [
+    INITIALIZE,
+    request(2, "tools/call", {
+      name: "devhub_search_local",
+      arguments: { query: "util", slug: "acme/alpha", regex: false },
+    }),
+    request(3, "tools/call", {
+      name: "devhub_search_local",
+      arguments: { query: "should not be listed" },
+    }),
+    request(4, "tools/call", {
+      name: "devhub_search_local",
+      arguments: { query: "[", regex: true },
+    }),
+  ]);
+  const one = structured(frames[1]);
+  assert.equal(one.scope, "one");
+  assert.equal(one.count, 1);
+  const hits = one.hits as Json[];
+  assert.equal(hits[0].file, "src/lib/util.ts");
+  assert.match(String(hits[0].content), /export const util/);
+
+  const all = structured(frames[2]);
+  assert.equal(all.count, 0, "node_modules must be skipped, not merely absent");
+  assert.equal(all.truncated, false);
+
+  assert.equal(errorOf(frames[3]).code, -32602, "an invalid regex is a params error");
 });

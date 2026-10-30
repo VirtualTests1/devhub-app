@@ -63,7 +63,15 @@ function Get-DevHubMsvcToolset {
 }
 
 function Get-DevHubWindowsSdk {
-    $libRoot = "${env:ProgramFiles(x86)}\Windows Kits\10\Lib"
+    # `${env:ProgramFiles(x86)}` is absent from some hosted/automation shells
+    # (observed 2026-10-30: every other machine variable is intact, this one is
+    # simply missing, and the literal directory exists). An empty variable would
+    # yield the relative root "\Windows Kits\10\Lib", which never resolves and
+    # reads as "no SDK installed" - a machine that can build being reported as one
+    # that cannot. Fall back to the literal 64-bit path when the variable is gone.
+    $pfx86 = ${env:ProgramFiles(x86)}
+    if ([string]::IsNullOrWhiteSpace($pfx86)) { $pfx86 = 'C:\Program Files (x86)' }
+    $libRoot = Join-Path $pfx86 'Windows Kits\10\Lib'
     if (-not (Test-Path -LiteralPath $libRoot)) { return $null }
     $versions = Get-ChildItem -LiteralPath $libRoot -Directory -ErrorAction SilentlyContinue |
         Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName 'ucrt\x64\ucrt.lib') }

@@ -1,4 +1,5 @@
 import type { Freshness } from "../types";
+import { t } from "./i18n";
 
 /**
  * The honest half of 有新提交: what one `repo_freshness` answer may be said to mean.
@@ -58,45 +59,49 @@ export type FreshnessVerdict = {
  * cancels the update they needed.
  */
 export function freshnessVerdict(f: Freshness): FreshnessVerdict {
-  const short = (h: string | null) => (h ? h.slice(0, 7) : "读不到");
+  const short = (h: string | null) =>
+    h ? h.slice(0, 7) : t("freshness.headUnreadable");
   switch (f.state) {
     case "fresh":
       return {
         tone: "same",
-        text: "与远程一致",
-        detail: `本地与远程 HEAD 相同：${short(f.localHead)}`,
+        text: t("freshness.sameText"),
+        detail: t("freshness.sameDetail", { head: short(f.localHead) }),
       };
     case "behind":
       return {
         tone: "diff",
-        text: "与远程 HEAD 不一致",
-        detail: `本地 ${short(f.localHead)} / 远程 ${short(f.remoteHead)}；后端只答出「不相同」，可能是落后，也可能是本地领先或已分叉（后者 更新 会拒绝而不是替你合并）`,
+        text: t("freshness.diffText"),
+        detail: t("freshness.diffDetail", {
+          local: short(f.localHead),
+          remote: short(f.remoteHead),
+        }),
       };
     case "no-git":
       return {
         tone: "warn",
-        text: "没有 git 历史",
-        detail: f.error ?? "压缩包下载的仓库没有历史：更新无从下手，只能重新下载",
+        text: t("freshness.noGit"),
+        detail: f.error ?? t("freshness.noGitDetail"),
       };
     case "missing":
       return {
         tone: "warn",
-        text: "远程仓库不存在或不可读",
-        detail: f.error ?? "远程不存在或已设为私有",
+        text: t("freshness.missing"),
+        detail: f.error ?? t("freshness.missingDetail"),
       };
     case "unknown":
       return {
         tone: "warn",
-        text: "无法确认",
-        detail: f.error ?? "后端未返回原因",
+        text: t("freshness.unknown"),
+        detail: f.error ?? t("freshness.unknownDetail"),
       };
     default:
       // An unrecognised state is reported as what it is. Mapping it to a tone
       // would invent a meaning the backend never sent.
       return {
         tone: "warn",
-        text: "无法确认",
-        detail: `后端返回了未记录的状态「${f.state}」，不作猜测`,
+        text: t("freshness.unknown"),
+        detail: t("freshness.unrecognised", { state: f.state }),
       };
   }
 }
@@ -113,8 +118,8 @@ export function freshnessVerdict(f: Freshness): FreshnessVerdict {
 export function notReachedVerdict(): FreshnessVerdict {
   return {
     tone: "warn",
-    text: "本轮没有答案",
-    detail: "批量检查有并发与数量上限，这次没轮到它；再查一次通常就有结果。此状态不代表「与远程一致」",
+    text: t("freshness.notReached"),
+    detail: t("freshness.notReachedDetail"),
   };
 }
 

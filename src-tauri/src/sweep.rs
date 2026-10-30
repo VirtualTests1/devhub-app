@@ -84,7 +84,11 @@ impl CloneSentinel {
 
 impl Drop for CloneSentinel {
     fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
+        if let Err(e) = std::fs::remove_file(&self.0) {
+            // Not fatal, but not silent either: a sentinel that cannot be removed
+            // becomes a false "interrupted clone" on the next start.
+            eprintln!("[sweep] 无法删除克隆哨兵 {}: {e}", self.0.display());
+        }
     }
 }
 
@@ -132,6 +136,31 @@ fn skip_dir(entry: &walkdir::DirEntry) -> bool {
     crate::searchgrep::IGNORE_DIRS.contains(&name)
         || matches!(name, ".pack" | ".worktrees")
         || name.starts_with('.')
+}
+
+/// Start the startup sweep on its own thread.
+///
+/// One line at the setup site: resolving the roots reads the config, and the
+/// walk itself must not delay the first frame.
+pub(crate) fn spawn_startup_sweep() {
+    let roots = crate::project_roots();
+    let config_dir = crate::settings_cmd::config_path()
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    std::thread::spawn(move || {
+        let report = sweep(&roots, &config_dir);
+        if !report.is_empty() {
+            println!(
+                "[sweep] temps={} bytes={} partials={} sentinels={} errors={}",
+                report.temps_removed,
+                report.bytes_freed,
+                report.partials_trashed,
+                report.sentinels_removed,
+                report.errors
+            );
+        }
+    });
 }
 
 /// Run the sweep over every project root plus the config directory.
@@ -262,7 +291,9 @@ fn sweep_sentinel(
     } else {
         report.sentinels_removed += 1;
     }
-    let _ = std::fs::remove_file(sentinel);
+    if std::fs::remove_file(sentinel).is_err() {
+        report.errors += 1;
+    }
 }
 
 #[cfg(test)]

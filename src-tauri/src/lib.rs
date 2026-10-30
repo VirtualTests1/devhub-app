@@ -4570,32 +4570,9 @@ pub fn run() {
                 println!("[cleanup] 计划清理删除 {removed} 条记录");
             }
 
-            // r33-D1: crash residue is swept off the startup thread. A killed
-            // clone leaves both a sentinel and a half-written landing directory,
-            // and a killed atomic write leaves a `.tmp.<pid>.<seq>` sibling;
-            // none of it is visible in the UI, all of it holds disk. The sweep
-            // only touches files older than a day, so a second running copy (a
-            // dev build beside the installed one) is never in its path.
-            {
-                let roots = project_roots();
-                let config_dir = config_path()
-                    .parent()
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_default();
-                std::thread::spawn(move || {
-                    let report = sweep::sweep(&roots, &config_dir);
-                    if !report.is_empty() {
-                        println!(
-                            "[sweep] temps={} bytes={} partials={} sentinels={} errors={}",
-                            report.temps_removed,
-                            report.bytes_freed,
-                            report.partials_trashed,
-                            report.sentinels_removed,
-                            report.errors
-                        );
-                    }
-                });
-            }
+            // r33-D1: crash residue (stale atomic temps, cover parts, interrupted
+            // clones) is swept off the startup thread; see `sweep.rs`.
+            sweep::spawn_startup_sweep();
 
             // N3: Deep Link 处理——克隆走搜索+下载，open 交给前端打开本地项目。
             let Some(action) = deeplink::extract_action() else {

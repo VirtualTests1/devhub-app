@@ -31,6 +31,7 @@
  * commands at launch time.
  */
 import type { LaunchStep } from "../types";
+import { persistJson } from "./persist";
 
 const STORAGE_KEY = "devhub.launch.templates.v1";
 
@@ -86,21 +87,11 @@ export function loadUserTemplates(): UserTemplate[] {
   return out;
 }
 
-function persist(templates: UserTemplate[]): void {
-  if (typeof localStorage === "undefined") return;
-  // A refused write must not take the editor down: the template list the user is
-  // looking at is still correct in memory, and the same storage that throws here
-  // (`QuotaExceededError` once the origin's 5 MB is full, or a denied origin) would
-  // otherwise throw out of 保存模板 mid-click. Every other store in the app already
-  // swallows this — `store/appearance.ts`, `store/customize.ts`, `store/ui.ts`.
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(templates));
-  } catch {
-    // Deliberately silent: the failure is reported by the write's own caller, which
-    // shows 已保存 from the in-memory list; nothing in this app has a storage-error
-    // channel to route this to, and inventing one for a swallowed exception is not
-    // worth the surface. The list stays in memory for the session either way.
-  }
+function persist(templates: UserTemplate[]): boolean {
+  // A refused write must not take the editor down: the list the user is looking
+  // at is still correct in memory. It must not claim the disk has it either —
+  // the caller now gets the outcome and can say "only for this session".
+  return persistJson(STORAGE_KEY, templates).ok;
 }
 
 function nextId(existing: UserTemplate[]): string {
@@ -110,33 +101,33 @@ function nextId(existing: UserTemplate[]): string {
   return `tpl-${n}`;
 }
 
-/** Save `steps` as a new template. Returns the created template. */
-export function saveTemplate(label: string, steps: LaunchStep[]): UserTemplate {
+/** A mutation plus whether the disk copy actually changed. */
+export type TemplateWrite<T> = { value: T; persisted: boolean };
+
+/** Save `steps` as a new template. */
+export function saveTemplate(label: string, steps: LaunchStep[]): TemplateWrite<UserTemplate> {
   const trimmed = label.trim();
   const name = trimmed.length > 0 ? trimmed.slice(0, 60) : `模板 ${new Date().toLocaleDateString()}`;
   const existing = loadUserTemplates();
   const created: UserTemplate = { id: nextId(existing), label: name, steps };
-  persist([...existing, created]);
-  return created;
+  return { value: created, persisted: persist([...existing, created]) };
 }
 
-/** Replace a template's steps in place. Returns false if the id was not found. */
-export function updateTemplate(id: string, steps: LaunchStep[]): boolean {
+/** Replace a template's steps in place. `value` is false if the id was not found. */
+export function updateTemplate(id: string, steps: LaunchStep[]): TemplateWrite<boolean> {
   const existing = loadUserTemplates();
   const idx = existing.findIndex((t) => t.id === id);
-  if (idx === -1) return false;
+  if (idx === -1) return { value: false, persisted: false };
   const current = existing[idx];
-  if (!current) return false;
+  if (!current) return { value: false, persisted: false };
   existing[idx] = { ...current, steps };
-  persist(existing);
-  return true;
+  return { value: true, persisted: persist(existing) };
 }
 
-/** Delete a template by id. Returns false if the id was not found. */
-export function deleteTemplate(id: string): boolean {
+/** Delete a template by id. `value` is false if the id was not found. */
+export function deleteTemplate(id: string): TemplateWrite<boolean> {
   const existing = loadUserTemplates();
   const next = existing.filter((t) => t.id !== id);
-  if (next.length === existing.length) return false;
-  persist(next);
-  return true;
+  if (next.length === existing.length) return { value: false, persisted: false };
+  return { value: true, persisted: persist(next) };
 }

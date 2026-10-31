@@ -199,7 +199,7 @@ test("i18n: 两份词表的槽名逐键一致（英文可以挪位置，不能�
 //
 // 钉法：在数组首 5 条、其后每约 50 个键、以及末 4 条上逐字节钉住 键→英文 映射。
 // 最大采样间隔 50，所以任何一处插入/删除/错位都会让「错位点之后的某个钉子」对不上。
-test("i18n: 英文按 ZH 键序对位——错位即失败（首尾 + 每约 50 键，31 条逐字节）", () => {
+test("i18n: 英文按 ZH 键序对位——错位即失败（首尾 + 每约 50 键，32 条逐字节）", () => {
   const pins: [string, string][] = [
     ["view.projects", "Projects"],
     ["view.add", "Add"],
@@ -232,6 +232,7 @@ test("i18n: 英文按 ZH 键序对位——错位即失败（首尾 + 每约 50 
     ["activity.cleared", "Operation records cleared"],
     ["activity.clearFailed", "Failed to clear: {msg}"],
     ["grep.timedOut", "The scan stopped at its {seconds}s limit; these results may be incomplete."],
+    ["storage.saveFailed", "Save failed: browser storage is full or disabled; this change lasts only for the current session."],
   ];
   const shifted = pins
     .filter(([key, want]) => EN[key] !== want)

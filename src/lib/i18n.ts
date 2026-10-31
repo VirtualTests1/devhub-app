@@ -2419,6 +2419,7 @@ const ZH = {
   "activity.cleared": "操作记录已清空",
   "activity.clearFailed": "清空失败：{msg}",
   "grep.timedOut": "扫描在 {seconds} 秒上限处停止，结果可能不完整。",
+  "storage.saveFailed": "保存失败：浏览器存储已满或被禁用；这次更改只在当前会话有效。",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

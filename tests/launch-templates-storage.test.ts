@@ -72,8 +72,9 @@ test("saveTemplate: a refused write does not throw out of the click", () => {
         { name: "install", command: "pnpm install", cwd: "", parallel: false },
         { name: "dev", command: "pnpm dev", cwd: "", parallel: false },
       ]);
-      assert.equal(created.label, "迁移 + 起服务");
-      assert.equal(created.steps.length, 2);
+      assert.equal(created.value.label, "迁移 + 起服务");
+      assert.equal(created.value.steps.length, 2);
+      assert.equal(created.persisted, false, "the click must know the disk write failed");
     },
   );
 });

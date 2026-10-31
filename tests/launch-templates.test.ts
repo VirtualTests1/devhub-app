@@ -26,7 +26,7 @@ test("saveTemplate persists and loadUserTemplates reads it back", () => {
     { name: "run", command: "npm run dev", cwd: "", parallel: false },
   ];
   const created = saveTemplate("my team's flow", steps);
-  assert.equal(created.label, "my team's flow");
+  assert.equal(created.value.label, "my team's flow");
   const loaded = loadUserTemplates();
   assert.equal(loaded.length, 1);
   assert.equal(at(loaded, 0).label, "my team's flow");
@@ -36,7 +36,7 @@ test("saveTemplate persists and loadUserTemplates reads it back", () => {
 test("saveTemplate falls back to a default label when the input is blank", () => {
   resetStore();
   const created = saveTemplate("   ", [{ name: "", command: "echo hi", cwd: "", parallel: false }]);
-  assert.ok(created.label.length > 0);
+  assert.ok(created.value.label.length > 0);
   assert.equal(loadUserTemplates().length, 1);
 });
 
@@ -44,22 +44,22 @@ test("saveTemplate caps the label length", () => {
   resetStore();
   const long = "a".repeat(200);
   const created = saveTemplate(long, [{ name: "", command: "x", cwd: "", parallel: false }]);
-  assert.equal(created.label.length, 60);
+  assert.equal(created.value.label.length, 60);
 });
 
 test("deleteTemplate removes only the named template", () => {
   resetStore();
   const a = saveTemplate("a", [{ name: "", command: "a", cwd: "", parallel: false }]);
   const b = saveTemplate("b", [{ name: "", command: "b", cwd: "", parallel: false }]);
-  assert.equal(deleteTemplate(a.id), true);
+  assert.equal(deleteTemplate(a.value.id).value, true);
   const loaded = loadUserTemplates();
   assert.equal(loaded.length, 1);
-  assert.equal(at(loaded, 0).id, b.id);
+  assert.equal(at(loaded, 0).id, b.value.id);
 });
 
 test("deleteTemplate returns false for an unknown id", () => {
   resetStore();
-  assert.equal(deleteTemplate("nope"), false);
+  assert.equal(deleteTemplate("nope").value, false);
 });
 
 test("loadUserTemplates drops malformed entries", () => {
@@ -90,5 +90,5 @@ test("saveTemplate generates unique ids", () => {
   resetStore();
   const a = saveTemplate("a", [{ name: "", command: "a", cwd: "", parallel: false }]);
   const b = saveTemplate("b", [{ name: "", command: "b", cwd: "", parallel: false }]);
-  assert.notEqual(a.id, b.id);
+  assert.notEqual(a.value.id, b.value.id);
 });

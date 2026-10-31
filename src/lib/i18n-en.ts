@@ -2191,4 +2191,5 @@ export const EN_VALUES = [
   "Operation records cleared",
   "Failed to clear: {msg}",
   "The scan stopped at its {seconds}s limit; these results may be incomplete.",
+  "Save failed: browser storage is full or disabled; this change lasts only for the current session.",
 ] as const;

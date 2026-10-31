@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { invoke } from "@tauri-apps/api/core";
 import { scheduleStorageRemove, scheduleStorageWrite } from "../lib/storage";
+import { persistJson } from "../lib/persist";
 import { SKINS, type SkinId } from "./ui";
 
 /**
@@ -756,12 +757,15 @@ export function loadTemplates(): AppearanceTemplate[] {
   }
 }
 
-function persistTemplates(list: AppearanceTemplate[]) {
-  try {
-    localStorage.setItem(TEMPLATES_KEY, JSON.stringify(list));
-  } catch {
-    /* storage full: templates stay for this session */
-  }
+/** What a template mutation actually did to disk. */
+export type TemplateMutation = {
+  templates: AppearanceTemplate[];
+  /** False when the in-memory list is the only copy (quota/private mode). */
+  persisted: boolean;
+};
+
+function persistTemplates(list: AppearanceTemplate[]): boolean {
+  return persistJson(TEMPLATES_KEY, list).ok;
 }
 
 function makeId(): string {
@@ -779,7 +783,7 @@ export function sanitizeTemplateValues(input: unknown): Partial<Appearance> {
   return out;
 }
 
-export function saveTemplate(name: string, values: Appearance): AppearanceTemplate[] {
+export function saveTemplate(name: string, values: Appearance): TemplateMutation {
   const tpl: AppearanceTemplate = {
     id: makeId(),
     name: name.trim() || "未命名模版",
@@ -787,22 +791,19 @@ export function saveTemplate(name: string, values: Appearance): AppearanceTempla
     values: sanitizeTemplateValues(values),
   };
   const list = [...loadTemplates(), tpl];
-  persistTemplates(list);
-  return list;
+  return { templates: list, persisted: persistTemplates(list) };
 }
 
-export function renameTemplate(id: string, name: string): AppearanceTemplate[] {
+export function renameTemplate(id: string, name: string): TemplateMutation {
   const list = loadTemplates().map((t) =>
     t.id === id ? { ...t, name: name.trim() || t.name } : t,
   );
-  persistTemplates(list);
-  return list;
+  return { templates: list, persisted: persistTemplates(list) };
 }
 
-export function deleteTemplate(id: string): AppearanceTemplate[] {
+export function deleteTemplate(id: string): TemplateMutation {
   const list = loadTemplates().filter((t) => t.id !== id);
-  persistTemplates(list);
-  return list;
+  return { templates: list, persisted: persistTemplates(list) };
 }
 
 /**

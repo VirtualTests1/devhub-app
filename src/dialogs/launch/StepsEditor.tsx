@@ -1,4 +1,5 @@
 import { Plus, Save, X } from "lucide-react";
+import { toast } from "../../components/Toast";
 import { cn } from "../../lib/utils";
 import type { LaunchStep } from "../../types";
 import { useI18n } from "../../lib/useI18n";
@@ -60,16 +61,20 @@ export function StepsEditor({
       return;
     }
     const clean: LaunchStep[] = steps.map(({ uid: _uid, ...rest }) => rest);
-    const created = saveTemplate(label || "", clean);
-    setUserTemplates(loadUserTemplates());
+    const result = saveTemplate(label || "", clean);
+    // On a refused write the disk copy is the old list; keep the new template
+    // visible for this session and say that is all it is.
+    setUserTemplates(result.persisted ? loadUserTemplates() : [...loadUserTemplates(), result.value]);
     setSaving(false);
-    // Keep the focus off the prompt's OK button; the editor stays usable.
-    void created;
+    if (!result.persisted) toast.error(t("storage.saveFailed"));
   };
 
   const handleDeleteTemplate = (id: string) => {
-    deleteTemplate(id);
-    setUserTemplates(loadUserTemplates());
+    const result = deleteTemplate(id);
+    setUserTemplates(
+      result.persisted ? loadUserTemplates() : userTemplates.filter((tpl) => tpl.id !== id),
+    );
+    if (!result.persisted) toast.error(t("storage.saveFailed"));
   };
 
   const applyTemplate = (tplSteps: LaunchStep[]) => onChange(withKeys(tplSteps));

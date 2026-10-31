@@ -613,8 +613,10 @@ export function TemplateGroup() {
       },
     );
     if (!ok) return;
-    setTemplates(deleteTemplate(id));
-    toast.success(t("appearance.tplDeleted"));
+    const result = deleteTemplate(id);
+    setTemplates(result.templates);
+    if (result.persisted) toast.success(t("appearance.tplDeleted"));
+    else toast.error(t("storage.saveFailed"));
   };
 
   const doImport = () => {
@@ -625,7 +627,7 @@ export function TemplateGroup() {
         toast.error(t("appearance.tplImportNoItems"));
         return;
       }
-      const list = saveTemplate(
+      const result = saveTemplate(
         // r18-o1-3: 默认模版名是持久化数据（写进本地模版列表），不译。
         parsed.name || "导入的模版",
         {
@@ -633,10 +635,11 @@ export function TemplateGroup() {
           ...values,
         } as Appearance,
       );
-      setTemplates(list);
+      setTemplates(result.templates);
       setImportText("");
       setImportOpen(false);
-      toast.success(t("appearance.tplImported"));
+      if (result.persisted) toast.success(t("appearance.tplImported"));
+      else toast.error(t("storage.saveFailed"));
     } catch {
       toast.error(t("appearance.tplImportParseFailed"));
     }
@@ -675,8 +678,10 @@ export function TemplateGroup() {
                   onChange={(e) => setRenaming({ id: tpl.id, name: e.target.value })}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
-                      setTemplates(renameTemplate(tpl.id, renaming.name));
+                      const result = renameTemplate(tpl.id, renaming.name);
+                      setTemplates(result.templates);
                       setRenaming(null);
+                      if (!result.persisted) toast.error(t("storage.saveFailed"));
                     } else if (e.key === "Escape") {
                       setRenaming(null);
                     }
@@ -725,10 +730,12 @@ export function TemplateGroup() {
               onChange={(e) => setNaming(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && naming.trim()) {
-                  setTemplates(saveTemplate(naming, useAppearance.getState()));
+                  const result = saveTemplate(naming, useAppearance.getState());
+                  setTemplates(result.templates);
                   setNaming("");
                   setNamingOpen(false);
-                  toast.success(t("appearance.tplSaved"));
+                  if (result.persisted) toast.success(t("appearance.tplSaved"));
+                  else toast.error(t("storage.saveFailed"));
                 } else if (e.key === "Escape") {
                   setNamingOpen(false);
                 }
@@ -740,10 +747,12 @@ export function TemplateGroup() {
               type="button"
               disabled={!naming.trim()}
               onClick={() => {
-                setTemplates(saveTemplate(naming, useAppearance.getState()));
+                const result = saveTemplate(naming, useAppearance.getState());
+                setTemplates(result.templates);
                 setNaming("");
                 setNamingOpen(false);
-                toast.success(t("appearance.tplSaved"));
+                if (result.persisted) toast.success(t("appearance.tplSaved"));
+                else toast.error(t("storage.saveFailed"));
               }}
               className="skin-ctl bg-primary px-4 py-2 text-caption font-medium text-primary-foreground transition-colors hover:brightness-95 disabled:opacity-40"
             >

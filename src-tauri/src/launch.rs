@@ -803,10 +803,39 @@ fn resolve_cwd(root: &Path, cfg: &LaunchConfig) -> std::path::PathBuf {
         return root.to_path_buf();
     }
     let p = root.join(cfg.cwd.trim());
-    if p.is_dir() {
+    if !p.is_dir() {
+        return root.to_path_buf();
+    }
+    // `.devhub.json` travels with the clone, so `cwd` is repository-controlled.
+    // `root.join("C:\\Windows")` is `C:\\Windows` and `..\\..` walks out; a
+    // confirmed command may only run somewhere inside the repository it was
+    // confirmed for. Canonicalize both sides so `..` and junctions are resolved
+    // before the containment test; return the original path on success so the
+    // UI keeps the spelling the repository recorded.
+    let root_c = std::fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf());
+    let p_c = match std::fs::canonicalize(&p) {
+        Ok(c) => c,
+        Err(_) => return root.to_path_buf(),
+    };
+    if p_c.starts_with(&root_c) {
         p
     } else {
         root.to_path_buf()
+    }
+}
+
+/// The launch commands may only execute a configuration the user confirmed.
+///
+/// The marker lives inside the clone and is read on every launch; a repository
+/// can ship a `.devhub.json` whose `user_confirmed` is `true`. Checking it here
+/// makes that claim insufficient on its own: the editor's "try these unsaved
+/// steps" path (`launch_steps_all`) is separate and deliberately not gated by
+/// the stored marker.
+pub(crate) fn require_confirmed(cfg: &LaunchConfig) -> Result<(), String> {
+    if cfg.user_confirmed {
+        Ok(())
+    } else {
+        Err("该仓库的启动命令未经确认，已拒绝执行；请打开启动面板确认命令后再运行。".to_string())
     }
 }
 
@@ -2996,21 +3025,43 @@ mod tests {
     #[test]
     fn resolve_cwd_falls_back_to_root_when_the_configured_dir_is_missing() {
         let d = std::env::temp_dir().join("devhub-launch-cwd");
-        let _ = std::fs::create_dir_all(&d);
-        let cfg = LaunchConfig {
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(d.join("inside")).unwrap();
+        let outside = std::env::temp_dir().join("devhub-launch-cwd-outside");
+        let _ = std::fs::remove_dir_all(&outside);
+        std::fs::create_dir_all(&outside).unwrap();
+        let cfg = |cwd: &str| LaunchConfig {
             command: "x".into(),
-            cwd: "does-not-exist".into(),
+            cwd: cwd.into(),
             user_confirmed: true,
             kind: None,
             steps: Vec::new(),
         };
-        assert_eq!(resolve_cwd(&d, &cfg), d);
-        let cfg_root = LaunchConfig {
-            cwd: String::new(),
-            ..cfg.clone()
-        };
-        assert_eq!(resolve_cwd(&d, &cfg_root), d);
+        assert_eq!(resolve_cwd(&d, &cfg("does-not-exist")), d);
+        assert_eq!(resolve_cwd(&d, &cfg("")), d);
+        assert_eq!(resolve_cwd(&d, &cfg("inside")), d.join("inside"));
+        assert_eq!(resolve_cwd(&d, &cfg("..")), d, "a parent path must not escape the repository");
+        assert_eq!(
+            resolve_cwd(&d, &cfg(&outside.to_string_lossy())),
+            d,
+            "an absolute path outside the repository must not replace the root"
+        );
         let _ = std::fs::remove_dir_all(&d);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn an_unconfirmed_config_is_refused() {
+        let mut cfg = LaunchConfig {
+            command: "npm run dev".into(),
+            cwd: String::new(),
+            user_confirmed: false,
+            kind: None,
+            steps: Vec::new(),
+        };
+        assert!(require_confirmed(&cfg).is_err(), "a repo-supplied marker must not self-confirm");
+        cfg.user_confirmed = true;
+        assert!(require_confirmed(&cfg).is_ok());
     }
 
     #[test]

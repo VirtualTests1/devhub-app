@@ -2699,6 +2699,7 @@ async fn launch_repo(
         .as_ref()
         .and_then(|m| m.launch.clone())
         .ok_or("该仓库还没有确认过启动命令")?;
+    launch::require_confirmed(&cfg)?;
     let env = launch_env_for(&repo);
 
     let notifier = process_events::ProcessNotifier::new(app.clone(), &settings);
@@ -2786,6 +2787,7 @@ async fn launch_step(
             .as_ref()
             .and_then(|m| m.launch.clone())
             .ok_or("该仓库还没有确认过启动命令")?;
+        launch::require_confirmed(&cfg)?;
         let steps = cfg.effective_steps();
         let step = steps
             .get(index as usize)

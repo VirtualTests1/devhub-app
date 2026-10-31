@@ -1,7 +1,7 @@
 {
   "name": "devhub-app",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "license": "MIT",
   "type": "module",
   "packageManager": "pnpm@10.33.0",

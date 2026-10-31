@@ -9,7 +9,23 @@
 //! 让用户在设置/项目设置里看到「这台机子有没有 Docker、项目目录有没有 compose 文件」。
 
 use std::path::Path;
-use std::process::Command;
+use std::process::Output;
+use std::time::Duration;
+
+/// A diagnostic probe, not a build: three seconds is long enough for a healthy
+/// Docker Desktop CLI and short enough that a starting daemon cannot wedge the
+/// settings panel. Every probe is silent (no flashing console) and bounded.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn tool_output(program: &str, args: &[&str], timeout: Duration) -> Option<Output> {
+    let mut cmd = crate::proc::silent(program);
+    cmd.args(args);
+    crate::proc::output_timeout(&mut cmd, timeout).ok().flatten()
+}
+
+fn docker_output(args: &[&str]) -> Option<Output> {
+    tool_output("docker", args, PROBE_TIMEOUT)
+}
 
 /// `rename_all` 是本轮才补的：这个结构体此前没有任何前端消费者（`docker_status`
 /// 在 `scripts/check-commands.mjs` 的 allowlist 里挂着「设置页 Docker 诊断面板待实现」），
@@ -41,26 +57,24 @@ pub struct DockerStatus {
 
 /// `docker info` 能跑通 = daemon 在运行；跑不通 = daemon 不在跑。
 fn daemon_running() -> (bool, Option<String>) {
-    let out = Command::new("docker").args(["info"]).output();
-    match out {
-        Ok(o) => {
-            if o.status.success() {
-                (true, None)
-            } else {
-                let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                (false, Some(err))
-            }
+    match docker_output(&["info"]) {
+        Some(o) if o.status.success() => (true, None),
+        Some(o) => {
+            let err = String::from_utf8_lossy(&o.stderr).trim().to_string();
+            (false, Some(err))
         }
-        Err(e) => (false, Some(format!("无法执行 docker：{e}"))),
+        None => (false, Some("docker info 未在 3 秒内回答（守护进程可能正在启动）".to_string())),
     }
 }
 
-fn count_lines(cmd: &[&str]) -> u32 {
-    let out = match Command::new("docker").args(cmd).output() {
-        Ok(o) if o.status.success() => o.stdout,
-        _ => return 0,
+fn count_lines(args: &[&str]) -> u32 {
+    let Some(o) = docker_output(args) else {
+        return 0;
     };
-    String::from_utf8_lossy(&out).lines().count() as u32
+    if !o.status.success() {
+        return 0;
+    }
+    String::from_utf8_lossy(&o.stdout).lines().count() as u32
 }
 
 /// `docker compose version` = compose 插件可用性探针。
@@ -73,9 +87,14 @@ fn count_lines(cmd: &[&str]) -> u32 {
 /// 原因可能是插件缺失、也可能是权限/环境问题，面板把后端原话显示出来，
 /// 由人判断，而不是替他下结论。
 fn compose_probe() -> (Option<String>, Option<String>) {
-    let out = match Command::new("docker").args(["compose", "version"]).output() {
-        Ok(o) => o,
-        Err(e) => return (None, Some(format!("无法执行 docker：{e}"))),
+    let out = match docker_output(&["compose", "version"]) {
+        Some(o) => o,
+        None => {
+            return (
+                None,
+                Some("docker compose version 未在 3 秒内回答".to_string()),
+            )
+        }
     };
     if out.status.success() {
         let mut text = String::from_utf8_lossy(&out.stdout).trim().to_string();
@@ -110,17 +129,13 @@ pub fn docker_status() -> DockerStatus {
         (false, Some("docker 不在 PATH 上".to_string()))
     };
     let version = if cli_found {
-        Command::new("docker")
-            .args(["--version"])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
+        docker_output(&["--version"]).and_then(|o| {
+            if o.status.success() {
+                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+            } else {
+                None
+            }
+        })
     } else {
         None
     };
@@ -161,28 +176,22 @@ pub fn project_has_compose(path: String) -> Option<String> {
 // ---- which helper ----------------------------------------------------------
 
 fn which(name: &str) -> Option<String> {
-    if cfg!(windows) {
-        // Windows：检查 PATH 上 name.exe / name.cmd / name.bat
-        Command::new("where").arg(name).output().ok().and_then(|o| {
-            if o.status.success() {
-                let first = String::from_utf8_lossy(&o.stdout)
-                    .lines()
-                    .next()
-                    .map(|s| s.trim().to_string());
-                first
-            } else {
-                None
-            }
-        })
+    let (program, arg) = if cfg!(windows) {
+        ("where", name)
     } else {
-        // Unix：which 直接返回第一个
-        Command::new("which").arg(name).output().ok().and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        })
+        ("which", name)
+    };
+    let o = tool_output(program, &[arg], Duration::from_secs(2))?;
+    if !o.status.success() {
+        return None;
+    }
+    if cfg!(windows) {
+        String::from_utf8_lossy(&o.stdout)
+            .lines()
+            .next()
+            .map(|s| s.trim().to_string())
+    } else {
+        Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
     }
 }
 

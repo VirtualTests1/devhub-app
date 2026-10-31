@@ -21,6 +21,13 @@ env:
   # Tauri 2 的构建脚本在 CI 上不需要本机那套 MSVC 手工补丁，但要显式给出前端产物目录，
   # 避免 `beforeBuildCommand` 与 `frontendDist` 路径在任何工作目录下漂移。
   CARGO_TERM_COLOR: always
+  # Pin the compiler rather than following the runner's `stable`. A docs-only
+  # commit failed clippy on 2026-10-30 because stable had moved to 1.99 and added
+  # `chunks_exact_to_as_chunks` (run 41055911319). 1.95.0 is the version this
+  # tree was developed and tested against. Bump deliberately, run
+  # `cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings`
+  # and `cargo test --lib`, and update this comment with the reason.
+  RUSTUP_TOOLCHAIN: "1.95.0"
 
 jobs:
   web:
@@ -119,9 +126,26 @@ jobs:
       # 成立的路径表，得到的绿灯是假的。
       - name: 报告工具链
         run: |
+          rustup show active-toolchain
           rustc --version
           cargo --version
           pnpm --version
+
+      # Cargo registry plus the compiled target directory. The key includes the
+      # pinned toolchain and Cargo.lock, so a toolchain bump or a dependency
+      # change starts a fresh cache instead of reusing objects built by another
+      # compiler. This is measured only after the next push; until then the
+      # saving is an expectation, not a result.
+      - name: 缓存 Cargo 依赖与 target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: cargo-native-${{ runner.os }}-${{ env.RUSTUP_TOOLCHAIN }}-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-native-${{ runner.os }}-${{ env.RUSTUP_TOOLCHAIN }}-
 
       # 这一步现在有明确的下游：下一步的 vite 要用 node_modules。旧版注释把它的
       # 存在解释成「build.rs 之前的 beforeBuildCommand 不需要，但 tauri-build 会读
@@ -210,8 +234,26 @@ jobs:
       # is the "green without coverage" shape this repo keeps finding.
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: 安装 cargo-audit（固定版本）
-        run: cargo install cargo-audit --locked --version 0.22.2
+      # The registry cache makes `cargo install` reuse downloaded crates; the
+      # cached binary skips a full rebuild of cargo-audit when its pinned
+      # version has not changed. A cache miss still installs it, so this is a
+      # speed-up, not a new way for the gate to pass without the tool.
+      - name: 缓存 Cargo 依赖与 cargo-audit
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            ~/.cargo/bin/cargo-audit
+          key: cargo-supply-${{ runner.os }}-${{ env.RUSTUP_TOOLCHAIN }}-0.22.2-${{ hashFiles('src-tauri/Cargo.lock') }}
+          restore-keys: |
+            cargo-supply-${{ runner.os }}-${{ env.RUSTUP_TOOLCHAIN }}-0.22.2-
+
+      - name: 安装 cargo-audit（固定版本；缓存命中则跳过）
+        run: |
+          if ! command -v cargo-audit >/dev/null 2>&1; then
+            cargo install cargo-audit --locked --version 0.22.2
+          fi
 
       - name: Rust 供应链检查（工具/数据库缺失即失败）
         run: node scripts/rust-supply.mjs --require

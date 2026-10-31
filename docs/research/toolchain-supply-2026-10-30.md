@@ -104,3 +104,7 @@ node scripts/rust-supply.mjs --require   # 需要能访问 RustSec advisory-db �
   （crate 级 `too_many_arguments`、两处 `large_enum_variant`）已在第 1 节记录。
 - 覆盖率未按目录设阈值；`src-tauri` 没有 JS 覆盖率口径，Rust 侧靠 493 个
   `#[test]`（`cargo test --lib`，2026-10-30 实测 493 passed / 0 failed）。
+
+**2026-10-31（r35）更新：** `cargo test --lib` 实测 508 passed / 6 ignored；
+静态 `#[test]` 计数 520，检查器下限已从 210 提到 520。CI 的 Rust 版本固定在
+`RUSTUP_TOOLCHAIN=1.95.0`，不再跟随 runner 的 `stable`。覆盖率阈值仍未设置。

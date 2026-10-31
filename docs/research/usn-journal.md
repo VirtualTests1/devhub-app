@@ -74,7 +74,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/usn-probe.ps1 `
   journal 可查询、可读、Next USN 会前进。
 - 没有测试非管理员在其它卷/组策略下的可读性，也没有测试 journal wrap 的实际时间。
 - 没有用 Rust FFI 读取 USN 记录；`fsutil` 的本地化输出明确不适合作为生产解析层。
-- 现有 watcher 的实际漏事件率没有测量；本轮没有改动它。
+- 现有 watcher 的实际漏事件率没有测量；本轮没有改动它。后续的
+  [native-watch-stress](native-watch-stress.md) 用合成密集写入测到 500/500 唯一文件名
+  覆盖（单次运行、合成负载），这不等于真实编辑器的长期漏事件率，也不覆盖停止路径。
 
 ## 7. 来源
 

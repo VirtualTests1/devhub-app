@@ -205,6 +205,49 @@ fn assess(
     }
 }
 
+/// One repository's cheap facts, collected before the git phase.
+struct Pending {
+    slug: String,
+    dir: std::path::PathBuf,
+    marker: Option<crate::downloader::Marker>,
+    marker_state: &'static str,
+    has_git: bool,
+}
+
+/// Map in parallel but return rows in input order.
+///
+/// The health card is a list ordered like the wall, so parallel `git status`
+/// calls may finish in any order but the result may not. Contiguous chunks each
+/// return their own start index, and the merge sorts by it.
+fn map_parallel<T, R>(items: &[T], workers: usize, f: impl Fn(&T) -> R + Sync) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+{
+    if items.is_empty() {
+        return Vec::new();
+    }
+    let workers = workers.max(1).min(items.len());
+    let chunk = items.len().div_ceil(workers);
+    let parts: Vec<(usize, Vec<R>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .chunks(chunk)
+            .enumerate()
+            .map(|(n, slice)| {
+                let f = &f;
+                scope.spawn(move || (n * chunk, slice.iter().map(f).collect::<Vec<R>>()))
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.join().expect("health worker panicked"))
+            .collect()
+    });
+    let mut parts = parts;
+    parts.sort_by_key(|(start, _)| *start);
+    parts.into_iter().flat_map(|(_, rows)| rows).collect()
+}
+
 fn overview_blocking() -> HealthOverview {
     let start = std::time::Instant::now();
     let roots = crate::project_roots();
@@ -212,12 +255,12 @@ fn overview_blocking() -> HealthOverview {
     let capped = repos.len() > MAX_HEALTH_REPOS;
     let git = crate::downloader::find_git(crate::bundled_runtime_dir().as_deref())
         .map(|g| g.path);
-    let rows = repos
+    let pending: Vec<Pending> = repos
         .iter()
         .take(MAX_HEALTH_REPOS)
         .filter_map(|repo| {
-            let dir = Path::new(repo.path.as_deref()?);
-            let marker_file = crate::downloader::read_marker_strict(dir).ok();
+            let dir = std::path::PathBuf::from(repo.path.as_deref()?);
+            let marker_file = crate::downloader::read_marker_strict(&dir).ok();
             let (marker, state) = match marker_file {
                 Some(crate::downloader::MarkerFile::Valid(m)) => (Some(m), "valid"),
                 Some(crate::downloader::MarkerFile::Absent) => (None, "absent"),
@@ -225,28 +268,42 @@ fn overview_blocking() -> HealthOverview {
                 Some(crate::downloader::MarkerFile::Corrupt) => (None, "corrupt"),
                 None => (None, "unreadable"),
             };
-            let slug = repo.slug();
-            let (status, status_error) = if dir.join(".git").exists() {
-                match git.as_deref() {
-                    Some(git) => match git_status(git, dir) {
-                        Ok(s) => (Some(s), None),
-                        Err(e) => (None, Some(e)),
-                    },
-                    None => (None, Some("找不到 git".to_string())),
-                }
-            } else {
-                (None, None)
-            };
-            Some(assess(
-                &slug,
+            Some(Pending {
+                slug: repo.slug(),
+                has_git: dir.join(".git").exists(),
                 dir,
-                marker.as_ref(),
-                state,
-                status.as_ref(),
-                status_error.as_deref(),
-            ))
+                marker,
+                marker_state: state,
+            })
         })
-        .collect::<Vec<_>>();
+        .collect();
+    // Four workers: `git status` is mostly waiting, and the container is a
+    // folder on one disk, so more concurrency would queue on the same spindle.
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(4);
+    let rows = map_parallel(&pending, workers, |p| {
+        let (status, status_error) = if p.has_git {
+            match git.as_deref() {
+                Some(git) => match git_status(git, &p.dir) {
+                    Ok(s) => (Some(s), None),
+                    Err(e) => (None, Some(e)),
+                },
+                None => (None, Some("找不到 git".to_string())),
+            }
+        } else {
+            (None, None)
+        };
+        assess(
+            &p.slug,
+            &p.dir,
+            p.marker.as_ref(),
+            p.marker_state,
+            status.as_ref(),
+            status_error.as_deref(),
+        )
+    });
     HealthOverview {
         scanned: rows.len(),
         rows,
@@ -265,6 +322,32 @@ pub async fn repo_health_overview() -> Result<HealthOverview, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parallel_rows_keep_input_order() {
+        let items: Vec<usize> = (0..50).collect();
+        let out = map_parallel(&items, 4, |n| n * 2);
+        assert_eq!(out, items.iter().map(|n| n * 2).collect::<Vec<_>>());
+        assert_eq!(map_parallel(&[] as &[usize], 4, |n| *n), Vec::<usize>::new());
+    }
+
+    #[test]
+    #[ignore = "benchmark: 40 x 10 ms simulated probes"]
+    fn bench_map_parallel_against_serial() {
+        let items: Vec<u64> = (0..40).collect();
+        let work = |n: &u64| {
+            std::thread::sleep(std::time::Duration::from_millis(10));
+            *n * 2
+        };
+        let t = std::time::Instant::now();
+        let serial: Vec<u64> = items.iter().map(work).collect();
+        let serial_ms = t.elapsed().as_millis();
+        let t = std::time::Instant::now();
+        let parallel = map_parallel(&items, 4, work);
+        let parallel_ms = t.elapsed().as_millis();
+        assert_eq!(serial, parallel);
+        println!("HEALTH_BENCH n=40 serial={serial_ms}ms parallel={parallel_ms}ms");
+    }
 
     #[test]
     fn status_v2_parses_branch_upstream_and_dirty_entries() {

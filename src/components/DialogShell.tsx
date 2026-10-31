@@ -4,6 +4,7 @@ import { useEffect, useId, useRef } from "react";
 import { cn } from "../lib/utils";
 import { useSelfClosing } from "../lib/motion";
 import { applyModalInert } from "../lib/modal-inert";
+import { isImeComposing } from "../lib/ime";
 import { useI18n } from "../lib/useI18n";
 import { reg } from "../store/customize";
 
@@ -99,6 +100,8 @@ export function DialogShell({
     const onKey = (e: KeyboardEvent) => {
       const el = panelRef.current;
       if (!el) return;
+      // 输入法候选窗打开时，Escape 是在取消拼音候选，不是关对话框。
+      if (isImeComposing(e)) return;
       // 只响应发生在本面板内部的按键：两层对话框叠加时一次 Escape 不能全关。
       if (!el.contains(e.target as Node)) return;
       if (e.key === "Escape") {

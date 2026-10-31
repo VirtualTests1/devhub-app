@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { applyModalInert } from "../lib/modal-inert";
+import { isImeComposing } from "../lib/ime";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -609,6 +610,10 @@ export function CommandPalette({
     const onKey = (e: KeyboardEvent) => {
       const el = panelRef.current;
       if (!el || nav.current.closing) return;
+      // An IME candidate window is open: arrows and Escape belong to it, not to
+      // the palette. Without this, cancelling a pinyin candidate closed the
+      // whole command palette.
+      if (isImeComposing(e)) return;
       const target = e.target as Node | null;
       // Accept keys from inside the panel, plus keys whose focus leaked to
       // the document root — an aria-modal surface must stay closable even

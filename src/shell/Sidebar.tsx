@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { moveItem } from "../lib/sidebar-order";
 import { useAutoLayers } from "../lib/motion";
 import { viewTitle } from "../lib/i18n";
 import { useI18n } from "../lib/useI18n";
@@ -140,6 +141,20 @@ export const Sidebar = memo(function Sidebar({
   const finishDrag = () => {
     setDragId(null);
     setDropIndex(null);
+  };
+
+  /**
+   * Keyboard reorder: Alt+↑/↓ moves the focused nav item one slot, using the
+   * same registry `order` the drag path writes. Without this the order was
+   * drag-only, which leaves keyboard users with no way to reach the feature.
+   */
+  const moveByKeyboard = (id: string, delta: number, ev: React.KeyboardEvent) => {
+    const at = orderedNav.findIndex((n) => n.id === id);
+    const next = moveItem(orderedNav, at, at + delta);
+    if (next.every((n, i) => n === orderedNav[i])) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    next.forEach((n, p) => setOrder(n.regId, p));
   };
 
   const dropAt = (target: (typeof NAV)[number], ev: React.DragEvent) => {
@@ -296,8 +311,14 @@ export const Sidebar = memo(function Sidebar({
                       onClick={() => go(item.id)}
                       data-active={active}
                       aria-current={active ? "page" : undefined}
+                      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                       {...reg(item.regId)}
                       title={collapsed ? viewTitle(t, item.id) : t("shell.sidebar.dragOrder")}
+                      onKeyDown={(ev) => {
+                        if (!ev.altKey) return;
+                        if (ev.key === "ArrowUp") moveByKeyboard(item.id, -1, ev);
+                        else if (ev.key === "ArrowDown") moveByKeyboard(item.id, 1, ev);
+                      }}
                       draggable={!collapsed}
                       onDragStart={(ev) => {
                         ev.dataTransfer.effectAllowed = "move";

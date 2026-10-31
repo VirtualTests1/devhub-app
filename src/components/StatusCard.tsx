@@ -39,6 +39,7 @@ export function StatusCard({
   regId?: string;
 }) {
   const { t } = useI18n();
+  const interactive = typeof onDoubleClick === "function";
   const toneClass = {
     default: "text-foreground",
     good: "text-success",
@@ -49,11 +50,27 @@ export function StatusCard({
   return (
     <div
       {...(regId ? reg(regId) : {})}
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
       onDoubleClick={onDoubleClick}
-      title={onDoubleClick ? t("status.doubleClickHint") : undefined}
+      onKeyDown={
+        interactive
+          ? (e) => {
+              // Enter/Space are the two keys every role="button" must accept;
+              // double-click alone made the promised jump unreachable by keyboard.
+              if (e.key !== "Enter" && e.key !== " ") return;
+              e.preventDefault();
+              e.stopPropagation();
+              onDoubleClick();
+            }
+          : undefined
+      }
+      aria-keyshortcuts={interactive ? "Enter Space" : undefined}
+      title={interactive ? t("status.doubleClickHint") : undefined}
       className={cn(
         "rounded-lg border border-border-weak bg-card p-2.5 transition-colors",
-        onDoubleClick && "cursor-pointer hover:border-primary/50 hover:bg-accent/40",
+        interactive &&
+          "cursor-pointer hover:border-primary/50 hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       )}
     >
       <div className="skin-label flex items-center gap-2 text-caption text-muted-foreground">

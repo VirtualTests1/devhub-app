@@ -12,6 +12,7 @@ import {
   SettingsGroup,
   SwitchRow,
 } from "../../components/SettingsRows";
+import { fmtDateTime } from "../../lib/format";
 import { messageOf } from "../../lib/report-error";
 import { WALL_DENSITIES, FILTERS, SORTS, slugOf, useWall } from "../../store/wall";
 import { useWallViews } from "../../store/wall-views";
@@ -248,7 +249,7 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
         hint={
           snapshotAt === null
             ? t("pw.snapshotNone")
-            : t("pw.snapshotHint", { time: new Date(snapshotAt).toLocaleString() })
+            : t("pw.snapshotHint", { time: fmtDateTime(snapshotAt) })
         }
         actionLabel={t("pw.snapshotAction")}
         secondary
@@ -268,7 +269,7 @@ export function ProjectsWallSection({ repos }: { repos: RepoRef[] }) {
             }
             setSnapshotAt(result.savedAt);
             toast.success(
-              t("pw.snapshotDone", { time: new Date(result.savedAt).toLocaleString() }),
+              t("pw.snapshotDone", { time: fmtDateTime(result.savedAt) }),
             );
           })();
         }}

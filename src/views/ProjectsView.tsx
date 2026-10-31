@@ -108,7 +108,7 @@ import {
   type SortId,
 } from "../store/wall";
 import { openHttpUrl } from "../lib/external-url";
-import { fmtRelative } from "../lib/format";
+import { fmtDateTime, fmtRelative } from "../lib/format";
 import { windowGroups } from "../lib/wall-window";
 import { useWallWindow } from "../lib/use-wall-window";
 import { isWallNavKey, nextCardIndex } from "../lib/wall-keyboard";
@@ -1511,7 +1511,7 @@ export function ProjectsView({
             <p className="font-medium text-warning">{t("wall.recovered.title")}</p>
             <p className="mt-0.5 leading-relaxed">
               {t("wall.recovered.body", {
-                time: new Date(wallRecoveredAt).toLocaleString(),
+                time: fmtDateTime(wallRecoveredAt),
               })}
             </p>
           </div>

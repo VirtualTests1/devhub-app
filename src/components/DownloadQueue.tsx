@@ -22,6 +22,7 @@ import { browserScheduler, createRefTicker } from "../lib/ref-ticker";
 import { browserVisibility } from "../lib/visibility";
 import { rowOwnsKey } from "../lib/useDismiss";
 import { copyLogWithToast } from "../lib/clipboard";
+import { fmtTime } from "../lib/format";
 import { reportError } from "../lib/report-error";
 import { DownloadProgress } from "./DownloadProgress";
 import { toast } from "./Toast";
@@ -631,7 +632,7 @@ function QueueHistory({
                 className="shrink-0 tabular-nums text-muted-foreground"
                 dateTime={new Date(e.endedAt).toISOString()}
               >
-                {new Date(e.endedAt).toLocaleTimeString()}
+                {fmtTime(e.endedAt)}
               </time>
               <button
                 type="button"

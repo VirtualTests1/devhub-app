@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Copy, LoaderCircle, RefreshCw } from "lucide-react";
 import { DialogShell } from "../components/DialogShell";
 import { useI18n } from "../lib/useI18n";
+import { fmtDateTime } from "../lib/format";
 import { messageOf } from "../lib/report-error";
 import { toast } from "../components/Toast";
 import type { CommitInfo, RepoRef } from "../types";
@@ -16,7 +17,7 @@ type Load =
 
 function when(iso: string): string {
   const ms = Date.parse(iso);
-  return Number.isFinite(ms) ? new Date(ms).toLocaleString() : iso;
+  return Number.isFinite(ms) ? fmtDateTime(ms) : iso;
 }
 
 /**

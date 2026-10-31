@@ -17,6 +17,7 @@ import { useDownloads, watchDownloads } from "./store/downloads";
 import { subscribeProcessUpdates } from "./store/processes";
 import { useMeta } from "./store/meta";
 import { slugOf } from "./lib/slug";
+import { fmtDateTime } from "./lib/format";
 import { createReloadGate, registerWatchRoots, watchRepoChanged } from "./lib/repo-watch";
 import type {
   CrashReport,
@@ -224,7 +225,7 @@ export default function App() {
           /* private mode: showing the toast twice is the lesser failure */
         }
         const when = Number.isFinite(Date.parse(report.at))
-          ? new Date(report.at).toLocaleString()
+          ? fmtDateTime(Date.parse(report.at))
           : report.at;
         toast.error(t("crash.detected", { time: when }));
       })

@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Download, Globe, Info, RefreshCw } from "lucide-react";
 import { SettingsGroup, SettingRow } from "../../components/SettingsRows";
 import { openHttpUrl } from "../../lib/external-url";
+import { fmtTime } from "../../lib/format";
 import { messageOf } from "../../lib/report-error";
 import { useI18n } from "../../lib/useI18n";
 import type { AppUpdate, WebView2Info } from "../../types";
@@ -59,7 +60,7 @@ export function AboutSection() {
 
   const checkedAt =
     update?.checkedAt != null
-      ? new Date(update.checkedAt * 1000).toLocaleTimeString()
+      ? fmtTime(update.checkedAt * 1000)
       : null;
 
   return (

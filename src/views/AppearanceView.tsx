@@ -23,6 +23,7 @@ import {
   Waves,
 } from "lucide-react";
 import { cn } from "../lib/utils";
+import { fmtDateTime } from "../lib/format";
 import { useDismiss } from "../lib/useDismiss";
 import { numberKeyHandler } from "../lib/number-keys";
 import { toast } from "../components/Toast";
@@ -662,7 +663,7 @@ export function TemplateGroup() {
         <SettingRow
           key={tpl.id}
           title={renaming?.id === tpl.id ? t("appearance.tplRenameTitle") : tpl.name}
-          hint={new Date(tpl.createdAt).toLocaleString()}
+          hint={fmtDateTime(Date.parse(tpl.createdAt))}
           regId="appearance-row-template"
           control={
             renaming?.id === tpl.id ? (

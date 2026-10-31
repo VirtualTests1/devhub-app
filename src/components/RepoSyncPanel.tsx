@@ -11,7 +11,7 @@ import {
   TriangleAlert,
 } from "lucide-react";
 import { toast } from "./Toast";
-import { fmtRelative } from "../lib/format";
+import { fmtDate, fmtRelative } from "../lib/format";
 import { messageOf } from "../lib/report-error";
 import { openHttpUrl } from "../lib/external-url";
 import { useI18n } from "../lib/useI18n";
@@ -315,7 +315,7 @@ export function RepoSyncPanel({
             <Tag className="h-2.5 w-2.5" />
             {release.tag}
             {release.prerelease ? ` · ${t("sync.releasePrerelease")}` : ""}
-            {release.publishedAt ? ` · ${new Date(release.publishedAt).toLocaleDateString()}` : ""}
+            {release.publishedAt ? ` · ${fmtDate(Date.parse(release.publishedAt))}` : ""}
             {release.fromCache ? ` · ${t("sync.releaseCached")}` : ""}
           </button>
         )}

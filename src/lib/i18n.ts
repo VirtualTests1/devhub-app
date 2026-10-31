@@ -2553,8 +2553,23 @@ export function readLocale(): Locale {
   }
 }
 
+/**
+ * Keep the document's language in step with the app's language.
+ *
+ * `index.html` opens with `lang="zh-CN"` so first paint is correct; a switch to
+ * English used to leave that attribute alone, which makes a screen reader
+ * pronounce English text with Chinese phonetics. Guarded because the dictionary
+ * tests run in Node, where there is no document.
+ */
+function syncDocumentLang(next: Locale): void {
+  if (typeof document !== "undefined" && document.documentElement) {
+    document.documentElement.lang = next;
+  }
+}
+
 let locale: Locale = readLocale();
 setFormatLocale(locale);
+syncDocumentLang(locale);
 
 export function getLocale(): Locale {
   return locale;
@@ -2581,6 +2596,7 @@ export function setLocale(next: Locale): void {
   if (!isLocale(next) || next === locale) return;
   locale = next;
   setFormatLocale(next);
+  syncDocumentLang(next);
   try {
     localStorage.setItem(LOCALE_STORAGE_KEY, JSON.stringify(next));
   } catch {

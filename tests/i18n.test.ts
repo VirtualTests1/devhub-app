@@ -1873,6 +1873,26 @@ test("i18n: 星标导入的每个词条逐字节落定（r18-n3）", () => {
 // ---------------------------------------------------------------------------
 // 6. 语言状态
 
+test("i18n: 语言切换同步 html lang，屏幕阅读器不按中文读英文", () => {
+  const previous = getLocale();
+  const hadDocument = Object.prototype.hasOwnProperty.call(globalThis, "document");
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    writable: true,
+    value: { documentElement: { lang: "" } },
+  });
+  try {
+    setLocale("zh-CN");
+    setLocale("en");
+    assert.equal((globalThis as { document: { documentElement: { lang: string } } }).document.documentElement.lang, "en");
+    setLocale("zh-CN");
+    assert.equal((globalThis as { document: { documentElement: { lang: string } } }).document.documentElement.lang, "zh-CN");
+  } finally {
+    setLocale(previous);
+    if (!hadDocument) Reflect.deleteProperty(globalThis, "document");
+  }
+});
+
 test("i18n: 启动读盘在 Node（没有 localStorage）里兜到默认语言", () => {
   assert.equal(typeof globalThis.localStorage, "undefined");
   assert.equal(readLocale(), DEFAULT_LOCALE);

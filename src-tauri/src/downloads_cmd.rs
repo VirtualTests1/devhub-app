@@ -218,3 +218,43 @@ pub(crate) async fn download_preflight(
     .await
     .map_err(|e| format!("下载预检任务异常: {e}"))?
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancel_reaches_only_the_live_task() {
+        let reg = DownloadCancels::default();
+        let token = downloader::CancelToken::default();
+        reg.insert("task-a", token.clone());
+
+        assert!(!token.is_cancelled(), "insertion alone must not cancel");
+        assert!(reg.cancel("task-a"), "the live task is cancellable");
+        assert!(token.is_cancelled(), "the worker's own token saw the cancel");
+        assert!(reg.cancel("task-a"), "a second cancel is still an honest true");
+        assert!(!reg.cancel("task-b"), "an unknown id is false, not a silent success");
+    }
+
+    #[test]
+    fn a_removed_task_is_no_longer_cancellable() {
+        let reg = DownloadCancels::default();
+        let token = downloader::CancelToken::default();
+        reg.insert("task", token.clone());
+        reg.remove("task");
+        assert!(!reg.cancel("task"), "a late cancel must not look like it reached a worker");
+        assert!(!token.is_cancelled(), "and it must not flip a token after the worker is gone");
+    }
+
+    #[test]
+    fn two_tasks_do_not_share_a_token() {
+        let reg = DownloadCancels::default();
+        let a = downloader::CancelToken::default();
+        let b = downloader::CancelToken::default();
+        reg.insert("a", a.clone());
+        reg.insert("b", b.clone());
+        assert!(reg.cancel("a"));
+        assert!(a.is_cancelled());
+        assert!(!b.is_cancelled(), "cancelling one download must not cancel its neighbour");
+    }
+}

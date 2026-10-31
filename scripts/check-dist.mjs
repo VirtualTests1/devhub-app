@@ -288,11 +288,16 @@ info.push(
 // and launch-output restore. Measured 1,196,586 / 81,554 / 206,852 / 1,278,140 /
 // 690,900 B; the dialog and card are lazy, so the initial growth is the dictionary
 // again. Each ceiling is the measurement + 1 KB cross-machine headroom.
-const JS_TOTAL_MAX_BYTES = 1_197_610; // measured 1,196,586 B + 1 KB headroom
-const CSS_TOTAL_MAX_BYTES = 82_369; // measured 81,554 B on 2026-10-30 (r34) + 1 KB headroom
+// r35 (2026-10-31): keyboard status cards / sidebar reorder, IME guards, template
+// failure messages, the diagnostics probe banner, cancel-error text and ten new
+// i18n keys. Measured 1,200,924 / 81,833 / 206,852 / 1,282,757 / 693,615 B; no new
+// dependency and no new eager chunk, so this is the code and dictionary that
+// shipped. Ceilings are again measurement + 1 KB.
+const JS_TOTAL_MAX_BYTES = 1_201_948; // measured 1,200,924 B + 1 KB headroom
+const CSS_TOTAL_MAX_BYTES = 82_857; // measured 81,833 B on 2026-10-31 (r35) + 1 KB headroom
 const SINGLE_CHUNK_MAX_BYTES = 207_876; // measured max 206,852 B (vendor-react-dom) + 1 KB headroom
-const JS_CSS_TOTAL_MAX_BYTES = 1_279_164; // measured 1,278,140 B + 1 KB headroom
-const INITIAL_JS_MAX_BYTES = 691_924; // measured 690,900 B after r34 + 1 KB headroom
+const JS_CSS_TOTAL_MAX_BYTES = 1_283_781; // measured 1,282,757 B + 1 KB headroom
+const INITIAL_JS_MAX_BYTES = 694_639; // measured 693,615 B after r35 + 1 KB headroom
 
 // A chunk is a "single chunk" for the per-file ceiling only if it is actually
 // loaded as one unit; sourcemaps are not, so they are excluded above.

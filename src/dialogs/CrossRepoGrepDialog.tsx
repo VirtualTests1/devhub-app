@@ -4,10 +4,17 @@ import { listen } from "@tauri-apps/api/event";
 import { FileSearch, SquareStop, TriangleAlert } from "lucide-react";
 
 import { DialogShell } from "../components/DialogShell";
+import { toast } from "../components/Toast";
 import { useI18n } from "../lib/useI18n";
 import { messageOf, reportError } from "../lib/report-error";
 import { cn } from "../lib/utils";
-import { checkPattern, hitAbsolutePath, PATTERN_MAX, type GrepHit } from "../lib/grep";
+import {
+  checkPattern,
+  hitAbsolutePath,
+  PATTERN_MAX,
+  requestGrepCancel,
+  type GrepHit,
+} from "../lib/grep";
 import {
   BATCH_MAX_REPOS,
   renderableGroups,
@@ -121,15 +128,25 @@ export function CrossRepoGrepDialog({
     }
   };
 
-  const cancel = () => {
+  const cancel = async () => {
     if (!busy || !taskRef.current) return;
     setCancelling(true);
-    void invoke("cancel_repo_grep", { task: taskRef.current }).catch(() => undefined);
+    const out = await requestGrepCancel(invoke, taskRef.current);
+    if (!out.ok) {
+      // The scan may still be walking; keep the dialog and say the stop failed.
+      setError(t("grep.cancelFailed", { msg: out.error }));
+      setCancelling(false);
+    }
   };
 
   const close = () => {
     if (busy && taskRef.current) {
-      void invoke("cancel_repo_grep", { task: taskRef.current }).catch(() => undefined);
+      const task = taskRef.current;
+      // The dialog is going away either way; report a failed stop after it
+      // closes rather than pretending the scan was cancelled.
+      void requestGrepCancel(invoke, task).then((out) => {
+        if (!out.ok) toast.error(t("grep.cancelFailed", { msg: out.error }));
+      });
     }
     onClose();
   };
@@ -203,7 +220,7 @@ export function CrossRepoGrepDialog({
         {busy ? (
           <button
             type="button"
-            onClick={cancel}
+            onClick={() => void cancel()}
             disabled={cancelling}
             className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-danger/50 bg-danger/10 px-3 text-caption text-danger transition-colors hover:bg-danger/20 disabled:opacity-40"
           >

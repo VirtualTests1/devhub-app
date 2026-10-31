@@ -2422,6 +2422,7 @@ const ZH = {
   "storage.saveFailed": "保存失败：浏览器存储已满或被禁用；这次更改只在当前会话有效。",
   "diagnose.probeFailed": "有 {n} 项检查没有跑成；下面的结论只覆盖返回了结果的检查。",
   "diagnose.partialTitle": "已运行的检查未发现问题",
+  "grep.cancelFailed": "取消失败：{msg}；后台扫描可能仍在继续。",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

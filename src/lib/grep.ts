@@ -129,6 +129,31 @@ export type GrepView =
  */
 export type GrepInvoke = (cmd: string, args?: Record<string, unknown>) => Promise<GrepResult>;
 
+/** The cancel command's channel: its answer is a boolean, not a `GrepResult`. */
+export type CancelInvoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+
+export type CancelOutcome = { ok: true } | { ok: false; error: string };
+
+/**
+ * Ask the backend to stop a cross-repository scan.
+ *
+ * The command can fail (the task id is gone, the IPC bridge is wedged), and the
+ * old dialog swallowed that while closing: the scan might still be walking
+ * repositories with no UI left to show it. Callers get the failure and can say
+ * so instead of implying the stop worked.
+ */
+export async function requestGrepCancel(
+  invoke: CancelInvoke,
+  task: string,
+): Promise<CancelOutcome> {
+  try {
+    await invoke("cancel_repo_grep", { task });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: messageOf(e) };
+  }
+}
+
 /**
  * 调 `repo_grep`。参数名是 camelCase：Tauri 2 把 JS 侧的驼峰按键转成 Rust 的
  * snake_case 形参（同仓先例 `create_new` ← `createNew`、`max_parallel` ← `maxParallel`）。

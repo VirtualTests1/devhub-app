@@ -2194,4 +2194,5 @@ export const EN_VALUES = [
   "Save failed: browser storage is full or disabled; this change lasts only for the current session.",
   "{n} checks could not run; the conclusion below covers only the checks that answered.",
   "No issues found by the checks that ran",
+  "Cancel failed: {msg}; the scan may still be running.",
 ] as const;

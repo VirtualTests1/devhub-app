@@ -3,7 +3,9 @@
 //! Two shapes of file outlive a killed process and are nobody's data:
 //!
 //!   * `write_atomic`'s sibling temp files (`<name>.tmp.<pid>.<seq>`), left when the
-//!     process died between `File::create` and `rename`;
+//!     process died between `File::create` and `rename`, and only when `<name>` is
+//!     one of this app's own state files (`APP_ATOMIC_BASE_NAMES`) — the filename
+//!     shape alone is not proof of ownership;
 //!   * cover download temps (`<cover>.png.part`, `<cover>.png.headers`), left when
 //!     curl was killed before its result was renamed into the cache;
 //!   * a clone sentinel (`<landing>.devhub-cloning`) next to a landing directory
@@ -92,18 +94,52 @@ impl Drop for CloneSentinel {
     }
 }
 
+/// Base names whose atomic temps this app owns.
+///
+/// The old sweep removed **any** `foo.tmp.1234.7` under a project root. That is
+/// a shape other tools and users also produce, so a 24-hour-old user file with
+/// the wrong name was deleted as "residue". Ownership has to be named, not
+/// inferred from a filename shape.
+const APP_ATOMIC_BASE_NAMES: &[&str] = &[
+    ".devhub.json",
+    ".devhub-index.json",
+    "devhub-config.json",
+    "devhub-config.json.bak",
+    "devhub-activity.jsonl",
+    "devhub-crash.json",
+    "devhub-window.json",
+];
+
+/// The target name of an atomic temp, when `name` has the exact
+/// `<base>.tmp.<digits>.<digits>` shape.
+fn atomic_target_base(name: &str) -> Option<&str> {
+    let (base, tail) = name.rsplit_once(".tmp.")?;
+    let (pid, seq) = tail.split_once('.')?;
+    if pid.is_empty()
+        || seq.is_empty()
+        || !pid.chars().all(|c| c.is_ascii_digit())
+        || !seq.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(base)
+}
+
 /// `foo.tmp.1234.7` - the shape `write_atomic` creates.
+#[cfg(test)]
 fn is_atomic_temp(name: &str) -> bool {
-    let Some(rest) = name.rsplit_once(".tmp.").map(|(_, tail)| tail) else {
-        return false;
-    };
-    let Some((pid, seq)) = rest.split_once('.') else {
-        return false;
-    };
-    !pid.is_empty()
-        && !seq.is_empty()
-        && pid.chars().all(|c| c.is_ascii_digit())
-        && seq.chars().all(|c| c.is_ascii_digit())
+    atomic_target_base(name).is_some()
+}
+
+/// Only the temp files whose target is one of this app's own state files.
+fn is_app_atomic_temp(name: &str) -> bool {
+    atomic_target_base(name).is_some_and(|base| APP_ATOMIC_BASE_NAMES.contains(&base))
+}
+
+/// Cover downloads write `<cover>.png.part` / `.headers` directly in the cover
+/// cache. The same suffix in a user's source tree is not ours to delete.
+fn is_in_cover_cache(root: &Path, path: &Path) -> bool {
+    path.parent() == Some(root.join("cache").join("covers").as_path())
 }
 
 fn is_cover_temp(name: &str) -> bool {
@@ -207,7 +243,8 @@ fn sweep_with(
                 sweep_sentinel(path, root, trash_dir, &mut report);
                 continue;
             }
-            if is_atomic_temp(name) || is_cover_temp(name) {
+            let cover_residue = is_cover_temp(name) && is_in_cover_cache(root, path);
+            if is_app_atomic_temp(name) || cover_residue {
                 match std::fs::remove_file(path) {
                     Ok(()) => {
                         report.temps_removed += 1;
@@ -230,7 +267,7 @@ fn sweep_with(
             let Some(name) = entry.file_name().to_str().map(str::to_string) else {
                 continue;
             };
-            if is_atomic_temp(&name) && is_stale(meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), now) {
+            if is_app_atomic_temp(&name) && is_stale(meta.modified().unwrap_or(SystemTime::UNIX_EPOCH), now) {
                 match std::fs::remove_file(entry.path()) {
                     Ok(()) => {
                         report.temps_removed += 1;
@@ -331,6 +368,9 @@ mod tests {
         assert!(!is_atomic_temp("notes.tmp.txt"));
         assert!(!is_atomic_temp("notes.tmp.1"));
         assert!(!is_atomic_temp("notes.tmp.x.1"));
+        assert!(is_app_atomic_temp(".devhub-index.json.tmp.1234.7"));
+        assert!(is_app_atomic_temp("devhub-activity.jsonl.tmp.1.0"));
+        assert!(!is_app_atomic_temp("notes.tmp.1234.7"), "a user file with the same shape is not ours");
         assert!(is_cover_temp("owner_repo.png.part"));
         assert!(is_cover_temp("owner_repo.PNG.HEADERS"));
         assert!(!is_cover_temp("owner_repo.png"));
@@ -345,18 +385,41 @@ mod tests {
     }
 
     #[test]
-    fn old_temp_files_go_and_fresh_ones_stay() {
+    fn old_app_temp_files_go_and_fresh_or_user_ones_stay() {
         let root = scratch("temps");
-        let old = root.join("a.json.tmp.1.2");
-        let fresh = root.join("b.json.tmp.3.4");
+        let old = root.join(".devhub-index.json.tmp.1.2");
+        let fresh = root.join(".devhub-index.json.tmp.3.4");
+        let user_old = root.join("notes.tmp.5.6");
         std::fs::write(&old, b"x").unwrap();
         std::fs::write(&fresh, b"y").unwrap();
+        std::fs::write(&user_old, b"user data").unwrap();
         age(&old, 48 * 3600);
+        age(&user_old, 48 * 3600);
 
         let report = sweep_with(&[root.clone()], &root, SystemTime::now(), &mut |_| Ok(()));
         assert_eq!(report.temps_removed, 1);
-        assert!(!old.exists());
+        assert!(!old.exists(), "an old app-owned atomic temp is residue");
         assert!(fresh.exists(), "a temp file inside the age window may be live");
+        assert!(user_old.exists(), "a user file with the temp shape is not residue");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn cover_residue_is_only_swept_inside_the_cover_cache() {
+        let root = scratch("covers");
+        let cover_dir = root.join("cache").join("covers");
+        std::fs::create_dir_all(&cover_dir).unwrap();
+        let app_cover = cover_dir.join("owner_repo.png.part");
+        let user_part = root.join("notes.png.part");
+        std::fs::write(&app_cover, b"x").unwrap();
+        std::fs::write(&user_part, b"y").unwrap();
+        age(&app_cover, 48 * 3600);
+        age(&user_part, 48 * 3600);
+
+        let report = sweep_with(&[root.clone()], &root, SystemTime::now(), &mut |_| Ok(()));
+        assert_eq!(report.temps_removed, 1);
+        assert!(!app_cover.exists());
+        assert!(user_part.exists(), "a .png.part outside cache/covers is not ours");
         let _ = std::fs::remove_dir_all(&root);
     }
 

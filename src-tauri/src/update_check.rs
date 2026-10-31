@@ -265,20 +265,28 @@ fn fetch_release(etag: Option<&str>) -> Result<Fetched, String> {
 pub async fn check_app_update(force: Option<bool>) -> Result<AppUpdate, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let force = force.unwrap_or(false);
+        // Read the cache and release it before the network call. Holding the
+        // mutex across `fetch_release` (up to 20 s) made a second click on
+        // 检查更新 wait for the first request, with no cache hit to justify it.
+        let validator = {
+            let cached = CHECK_CACHE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(current) = cached.as_ref() {
+                if cache_is_fresh(current.fetched_at.elapsed(), force) {
+                    return Ok(view_of(current, true));
+                }
+            }
+            if force {
+                None
+            } else {
+                cached.as_ref().and_then(|c| c.etag.clone())
+            }
+        };
+        let fetched = fetch_release(validator.as_deref())?;
         let mut cached = CHECK_CACHE
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(current) = cached.as_ref() {
-            if cache_is_fresh(current.fetched_at.elapsed(), force) {
-                return Ok(view_of(current, true));
-            }
-        }
-        let validator = if force {
-            None
-        } else {
-            cached.as_ref().and_then(|c| c.etag.clone())
-        };
-        let fetched = fetch_release(validator.as_deref())?;
         match fetched.status {
             Some(304) => {
                 let Some(current) = cached.as_mut() else {

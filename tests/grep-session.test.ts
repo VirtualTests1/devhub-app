@@ -76,7 +76,7 @@ function fakeClock() {
   };
 }
 
-const Q = (pattern: string) => ({ root: "D:\\proj\\demo", pattern, caseInsensitive: false });
+const Q = (pattern: string) => ({ slug: "owner/demo", pattern, caseInsensitive: false });
 
 // ---------------------------------------------------------------------------
 // 1. 防抖：停顿后才查
@@ -326,7 +326,7 @@ test("接线: 打字进 type()（防抖）、搜索按钮与 Enter 进 run()（�
   assert.ok(DIALOG.includes("query(\"run\")"), "表单提交（按钮/Enter）立即查");
   assert.ok(DIALOG.includes('checked={ci}') && DIALOG.includes('t("grep.caseInsensitive")'), "忽略大小写开关有词条");
   assert.ok(
-    DIALOG.includes("sessionRef.current?.run({ root, pattern, caseInsensitive: next })"),
+    DIALOG.includes("sessionRef.current?.run({ slug, pattern, caseInsensitive: next })"),
     "切换大小写立即重查（显式点击没有防抖的理由）",
   );
 });

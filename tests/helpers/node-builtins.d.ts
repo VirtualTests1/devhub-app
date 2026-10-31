@@ -123,11 +123,15 @@ declare module "node:path" {
   export function join(...parts: string[]): string;
   /** Used by `checkers.test.ts` to address scripts absolutely, independent of cwd. */
   export function resolve(...parts: string[]): string;
+  /** Used by source-scanning tests to anchor the repo root from `import.meta.url`. */
+  export function dirname(path: string): string;
 }
 
 declare module "node:url" {
   /** Used by the lazy-locale test to hand a Windows-safe module URL to a child. */
   export function pathToFileURL(path: string): { href: string };
+  /** Used with `dirname` so a test can anchor the repo root without cwd. */
+  export function fileURLToPath(url: string | URL): string;
 }
 
 declare module "node:child_process" {

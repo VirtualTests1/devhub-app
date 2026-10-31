@@ -240,7 +240,10 @@ where
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().expect("health worker panicked"))
+            // A worker only formats one row; a panic there must not take the
+            // command down (`panic = "abort"`). Its chunk is omitted, which the
+            // caller sees as fewer rows rather than as a crash.
+            .map(|h| h.join().unwrap_or((0, Vec::new())))
             .collect()
     });
     let mut parts = parts;

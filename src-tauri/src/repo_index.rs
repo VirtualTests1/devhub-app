@@ -260,24 +260,39 @@ fn build(roots: &[PathBuf]) -> Index {
     }
 }
 
+/// A snapshot of the cached index for these roots and how long ago it was last
+/// validated, copied out under the cache lock.
+fn cached_for(roots: &[PathBuf]) -> Option<(Index, std::time::Duration)> {
+    let c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    c.as_ref()
+        .filter(|hit| hit.index.matches(roots))
+        .map(|hit| (hit.index.clone(), hit.validated_at.elapsed()))
+}
+
+/// Records that the current index was just validated. A different roots set may
+/// have replaced the entry while validation ran outside the lock; only touch the
+/// entry when it still describes these roots.
+fn mark_validated(roots: &[PathBuf]) {
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(hit) = c.as_mut().filter(|hit| hit.index.matches(roots)) {
+        hit.validated_at = std::time::Instant::now();
+    }
+}
+
 /// The index for these roots, from the cheapest source that is still true.
 fn current(roots: &[PathBuf]) -> (Index, Origin) {
     if index_disabled() {
         return (build(roots), Origin::Walked);
     }
 
-    {
-        // Poison-tolerant on purpose: a panic elsewhere must not turn
-        // invalidation into a silent no-op (the index would then serve stale
-        // entries for the rest of the session) or force an 86-second full walk.
-        let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(hit) = c.as_mut() {
-            if hit.index.matches(roots)
-                && (hit.validated_at.elapsed() < TRUST_WINDOW || hit.index.is_current())
-            {
-                hit.validated_at = std::time::Instant::now();
-                return (hit.index.clone(), Origin::Memory);
-            }
+    if let Some((index, age)) = cached_for(roots) {
+        // `is_current` reads one directory per container. It used to run while
+        // CACHE was locked, so every lookup on a slow share serialized behind
+        // it. The clone is cheap next to a `read_dir`; validate outside, then
+        // take the lock again only to record the timestamp.
+        if age < TRUST_WINDOW || index.is_current() {
+            mark_validated(roots);
+            return (index, Origin::Memory);
         }
     }
 
@@ -288,14 +303,10 @@ fn current(roots: &[PathBuf]) -> (Index, Origin) {
     });
 
     // Double-check cache under the walk guard (another walker may have finished).
-    if let Ok(mut c) = CACHE.lock() {
-        if let Some(hit) = c.as_mut() {
-            if hit.index.matches(roots)
-                && (hit.validated_at.elapsed() < TRUST_WINDOW || hit.index.is_current())
-            {
-                hit.validated_at = std::time::Instant::now();
-                return (hit.index.clone(), Origin::Memory);
-            }
+    if let Some((index, age)) = cached_for(roots) {
+        if age < TRUST_WINDOW || index.is_current() {
+            mark_validated(roots);
+            return (index, Origin::Memory);
         }
     }
 

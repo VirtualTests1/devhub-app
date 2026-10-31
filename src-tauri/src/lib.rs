@@ -2167,8 +2167,11 @@ pub fn run_headless_ensure_git(runtime_override: Option<String>) -> i32 {
             println!("via_mirror={:?}", outcome.via_mirror);
             println!("git_path={}", outcome.git_path);
             // Prove the result is actually usable, not just present.
-            match proc::silent(&outcome.git_path).arg("--version").output() {
-                Ok(o) => println!("probe={}", String::from_utf8_lossy(&o.stdout).trim()),
+            let mut probe = proc::silent(&outcome.git_path);
+            probe.arg("--version");
+            match proc::output_timeout(&mut probe, std::time::Duration::from_secs(5)) {
+                Ok(Some(o)) => println!("probe={}", String::from_utf8_lossy(&o.stdout).trim()),
+                Ok(None) => println!("probe=TIMEOUT"),
                 Err(e) => println!("probe=FAILED {e}"),
             }
             0

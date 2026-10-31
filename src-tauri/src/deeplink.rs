@@ -14,7 +14,6 @@
 //!   → emit `deeplink://clone`（下载）或 `deeplink://open`（打开本地已有项目）
 //!   → 前端监听并走 `startDownload` / `setOpenSlug`
 
-use std::process::Command;
 use tauri::Emitter;
 
 /// 支持的 scheme。
@@ -114,10 +113,11 @@ pub fn register_windows_protocol(exe_path: &str) -> Result<(), String> {
     let base = r"HKCU\Software\Classes\devhub";
 
     let run_reg = |args: &[&str]| -> Result<(), String> {
-        let output = Command::new("reg")
-            .args(args)
-            .output()
-            .map_err(|e| format!("reg {} 失败：{e}", args.get(1).unwrap_or(&"?")))?;
+        let mut cmd = crate::proc::silent("reg");
+        cmd.args(args);
+        let output = crate::proc::output_timeout(&mut cmd, std::time::Duration::from_secs(10))
+            .map_err(|e| format!("reg {} 失败：{e}", args.get(1).unwrap_or(&"?")))?
+            .ok_or_else(|| format!("reg {} 超时", args.get(1).unwrap_or(&"?")))?;
         if !output.status.success() {
             return Err(format!(
                 "注册协议失败 ({}): {}",

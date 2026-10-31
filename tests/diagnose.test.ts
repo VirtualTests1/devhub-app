@@ -18,6 +18,7 @@ import {
   CACHE_BIG_BYTES,
   diagText,
   diagnose,
+  missingProbes,
   severityLabel,
   type Diagnostic,
   type RepoDiagInput,
@@ -35,6 +36,19 @@ import type {
 import { at } from "./helpers/definite.ts";
 
 const SLUG = "github.com/a/b";
+
+test("missingProbes names only the probes that returned no answer", () => {
+  assert.deepEqual(
+    missingProbes({
+      environment: {},
+      repo_freshness: null,
+      repo_detail: { slug: "o/r" },
+      repo_port_health: undefined,
+    }),
+    ["repo_freshness", "repo_port_health"],
+  );
+  assert.deepEqual(missingProbes({ a: 0, b: false, c: "" }), [], "falsy answers are answers");
+});
 
 // --- 事实工厂：默认值代表「一切正常」，测试只覆盖它关心的那一项。 ---------------
 

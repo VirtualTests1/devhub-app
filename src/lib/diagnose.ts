@@ -109,6 +109,21 @@ export type DiagInput = {
   env: EnvironmentReport | null;
 };
 
+/**
+ * Which named probes returned no answer.
+ *
+ * `diagnose` deliberately drops a rule when its input is `null` — "could not ask"
+ * is not "nothing wrong". That is honest at the rule level, but the dialog then
+ * rendered an empty issue list, which reads as "all clear" after eight of nine
+ * probes failed. This names the missing inputs so the surface can say what the
+ * conclusion does and does not cover.
+ */
+export function missingProbes(probes: Readonly<Record<string, unknown>>): string[] {
+  return Object.entries(probes)
+    .filter(([, value]) => value === null || value === undefined)
+    .map(([name]) => name);
+}
+
 /** 缓存「过大」的阈值：200 MB。超过才提示可清理，免得把每条缓存都当成问题。 */
 export const CACHE_BIG_BYTES = 200 * 1024 * 1024;
 

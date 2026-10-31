@@ -7,6 +7,7 @@ import {
   diagnose,
   diagAction,
   diagText,
+  missingProbes,
   severityLabel,
   type Diagnostic,
   type DiagJump,
@@ -47,7 +48,9 @@ import type {
  */
 type Card = RepoRef & { slug: string };
 
-type Load = { kind: "loading" } | { kind: "ready"; issues: Diagnostic[] };
+type Load =
+  | { kind: "loading" }
+  | { kind: "ready"; issues: Diagnostic[]; failed: string[] };
 
 /** 一次探针调用：成功取值，失败（含命令返回空）记成 `null`。 */
 async function probe<T>(name: string, args?: Record<string, unknown>): Promise<T | null> {
@@ -101,7 +104,20 @@ export function RepoDiagnoseDialog({
         repos: [{ slug, running, freshness, worktree, detail, ports, plan, cache, tools }],
         env,
       });
-      setState({ kind: "ready", issues });
+      // `probe` turns an IPC rejection into null, and diagnose drops that rule.
+      // Name the dropped inputs so zero issues cannot pose as "all clear".
+      const failed = missingProbes({
+        environment: env,
+        repo_freshness: freshness,
+        repo_worktree_status: worktree,
+        repo_detail: detail,
+        repo_port_health: ports,
+        install_plan: plan,
+        scan_cache: cache,
+        repo_environments: tools,
+        check_dependencies: depReport,
+      });
+      setState({ kind: "ready", issues, failed });
       setDeps(depReport);
     })();
     return () => {
@@ -143,11 +159,25 @@ export function RepoDiagnoseDialog({
         </p>
       )}
 
+      {state.kind === "ready" && state.failed.length > 0 && (
+        <div
+          role="status"
+          className="mb-3 rounded-lg border border-warning/30 bg-warning/5 px-2.5 py-2 text-caption text-muted-foreground"
+        >
+          <p className="font-medium text-warning">
+            {t("diagnose.probeFailed", { n: state.failed.length })}
+          </p>
+          <p className="mt-0.5 break-all font-mono">{state.failed.join(" · ")}</p>
+        </div>
+      )}
+
       {state.kind === "ready" && issues.length === 0 && (
         <div className="flex items-start gap-2 py-3">
           <CircleCheckBig className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
           <div>
-            <p className="text-body font-medium text-foreground">{t("diagnose.emptyTitle")}</p>
+            <p className="text-body font-medium text-foreground">
+              {state.failed.length > 0 ? t("diagnose.partialTitle") : t("diagnose.emptyTitle")}
+            </p>
             <p className="mt-0.5 text-caption leading-snug text-muted-foreground">
               {t("diagnose.emptyHint")}
             </p>

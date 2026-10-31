@@ -932,6 +932,18 @@ fn ts_string(ts: i64) -> String {
 mod tests {
     use super::*;
 
+    /// `READ_CACHE` is one global slot keyed on the file stamp. A test that calls
+    /// `append` on its own temp file still clears that slot, so two cache tests
+    /// running in parallel can observe each other's invalidation (this failed
+    /// once under cargo's default test threads). Production has one activity
+    /// path; the suite has many, so the tests serialize instead of weakening the
+    /// cache's one-entry design.
+    static TEST_SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    fn serial() -> std::sync::MutexGuard<'static, ()> {
+        TEST_SERIAL.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     fn entry(ts: i64, tag: &str, action: &str, slug: &str) -> ActivityEntry {
         // The `ts` argument must survive: the retention and purge tests are
         // about old entries, and `now()` would stamp every fixture as current.
@@ -946,6 +958,7 @@ mod tests {
     /// schema change and "所有历史记录消失了".
     #[test]
     fn change_and_undo_fields_round_trip() {
+        let _serial = serial();
         let e = entry(now_ts(), "settings", "修改项目目录", "")
             .with_target("config.projectRoot")
             .with_change("D:\\old", "D:\\new")
@@ -961,6 +974,7 @@ mod tests {
 
     #[test]
     fn a_pre_undo_line_still_parses_as_not_reversible() {
+        let _serial = serial();
         let raw = "{\"id\":\"x1\",\"ts\":1700000000,\"tag\":\"launch\",\"action\":\"启动\",\"detail\":\"\",\"slug\":\"\",\"source\":\"\",\"path\":\"\"}";
         let e: ActivityEntry = serde_json::from_str(raw).unwrap();
         assert!(e.undo.is_none());
@@ -972,6 +986,7 @@ mod tests {
 
     #[test]
     fn delete_many_removes_exactly_the_listed_ids() {
+        let _serial = serial();
         let path = tmp("delete-many");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -996,6 +1011,7 @@ mod tests {
     /// promise is that everything is recorded.
     #[test]
     fn concurrent_appends_survive_a_rewriting_reader() {
+        let _serial = serial();
         let path = tmp("append-vs-rewrite");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -1039,6 +1055,7 @@ mod tests {
 
     #[test]
     fn purge_honours_forever_and_a_horizon() {
+        let _serial = serial();
         let path = tmp("purge");
         let _ = std::fs::remove_file(&path);
         let now = now_ts();
@@ -1051,6 +1068,7 @@ mod tests {
 
     #[test]
     fn mark_undone_stamps_the_entry_and_survives_a_reread() {
+        let _serial = serial();
         let path = tmp("mark-undone");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -1092,6 +1110,7 @@ mod tests {
 
     #[test]
     fn jsonl_round_trips_through_a_file() {
+        let _serial = serial();
         let path = tmp("jsonl");
         let _ = std::fs::remove_file(&path);
 
@@ -1114,6 +1133,7 @@ mod tests {
 
     #[test]
     fn markdown_export_has_a_row_per_entry_and_escapes_pipes() {
+        let _serial = serial();
         let out = [
             entry(1_700_000_000, "download", "下载仓库", "github.com/a/b"),
             entry(1_700_000_100, "settings", "修改项目目录", ""),
@@ -1133,6 +1153,7 @@ mod tests {
 
     #[test]
     fn retention_prunes_old_entries_on_read() {
+        let _serial = serial();
         let path = tmp("retention");
         let _ = std::fs::remove_file(&path);
 
@@ -1150,6 +1171,7 @@ mod tests {
 
     #[test]
     fn zero_retention_keeps_everything() {
+        let _serial = serial();
         let path = tmp("forever");
         let _ = std::fs::remove_file(&path);
 
@@ -1167,6 +1189,7 @@ mod tests {
 
     #[test]
     fn ids_are_unique_within_a_second() {
+        let _serial = serial();
         // Four writes inside the same second are exactly what a batch settings
         // save does; the id still has to tell them apart.
         let mut seen = std::collections::HashSet::new();
@@ -1177,6 +1200,7 @@ mod tests {
 
     #[test]
     fn a_legacy_line_without_an_id_is_backfilled_and_persisted() {
+        let _serial = serial();
         let path = tmp("backfill");
         let _ = std::fs::remove_file(&path);
         // Verbatim pre-`id` format: five fields, no id / source / path.
@@ -1200,6 +1224,7 @@ mod tests {
 
     #[test]
     fn delete_removes_one_entry_and_leaves_the_rest() {
+        let _serial = serial();
         let path = tmp("delete");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -1219,6 +1244,7 @@ mod tests {
 
     #[test]
     fn an_unparseable_line_survives_a_rewrite() {
+        let _serial = serial();
         let path = tmp("torn");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -1247,6 +1273,7 @@ mod tests {
     /// bad row in `devhub-activity.jsonl`.
     #[test]
     fn ts_string_never_panics_on_an_out_of_range_timestamp() {
+        let _serial = serial();
         // In range: `YYYY-MM-DD HH:MM`, local time.
         let s = ts_string(1_700_000_000);
         assert_eq!(s.len(), 16, "{s}");
@@ -1356,6 +1383,7 @@ mod tests {
     /// （读没读盘），不是性能感觉，计数是确定的、可断言的。
     #[test]
     fn read_cache_serves_an_unchanged_file_and_refills_after_a_write() {
+        let _serial = serial();
         let path = tmp("cache-hit");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -1390,6 +1418,7 @@ mod tests {
     /// 把缓存喂成脏数据。
     #[test]
     fn read_cache_is_dropped_by_every_write_path() {
+        let _serial = serial();
         let path = tmp("cache-invalidate");
         let _ = std::fs::remove_file(&path);
         let now = now_ts();
@@ -1445,6 +1474,7 @@ mod tests {
     /// 内容——那正是"永远不返回陈旧数据"的字面要求。
     #[test]
     fn a_broken_or_missing_file_never_comes_back_from_the_cache() {
+        let _serial = serial();
         let path = tmp("cache-corrupt");
         let _ = std::fs::remove_file(&path);
         append(&path, &entry(now_ts(), "download", "好", "")).unwrap();
@@ -1468,6 +1498,7 @@ mod tests {
     /// 改写，否则下一次宽松窗口又会把过期行放出来。
     #[test]
     fn a_tightened_retention_falls_back_to_a_full_read_and_rewrites() {
+        let _serial = serial();
         let path = tmp("cache-retention");
         let _ = std::fs::remove_file(&path);
         let now = now_ts();
@@ -1492,6 +1523,7 @@ mod tests {
     /// 它和日志锁是一对，坏一半等于全坏。
     #[test]
     fn a_poisoned_gate_still_reads_and_writes() {
+        let _serial = serial();
         let path = tmp("cache-poison");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -1515,6 +1547,7 @@ mod tests {
     /// It must drop the cached parse so the next `list` reads the bytes on disk.
     #[test]
     fn cache_invalidate_drops_the_cached_parse() {
+        let _serial = serial();
         let path = tmp("invalidate");
         let _ = std::fs::remove_file(&path);
         let ts = now_ts();
@@ -1534,6 +1567,7 @@ mod tests {
 
     #[test]
     fn csv_quotes_commas_quotes_and_newlines() {
+        let _serial = serial();
         let mut e = entry(0, "download", "含,逗号", "");
         e.detail = "第一行\n第二行\"引号\"".into();
         e.id = "a\"b".into();
@@ -1551,6 +1585,7 @@ mod tests {
 
     #[test]
     fn csv_neutralises_formula_prefixes_before_quoting() {
+        let _serial = serial();
         let mut e = entry(0, "download", "=HYPERLINK(\"http://example.invalid\")", "");
         e.detail = "+1+1".into();
         e.slug = "-2+3".into();

@@ -46,6 +46,7 @@ pnpm tauri build --no-bundle
 pnpm test
 pnpm gate
 pnpm test:rust
+pnpm test:coverage   # 覆盖率低于 85% 行 / 80% 分支 / 72% 函数即失败
 ```
 
 ## 目录

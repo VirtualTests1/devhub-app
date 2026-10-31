@@ -120,6 +120,15 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      # `RUSTUP_TOOLCHAIN` pins cargo to 1.95.0, but a pinned toolchain installed
+      # on first use is minimal: clippy is a component, not part of it. The first
+      # r35 CI run failed exactly there ("cargo-clippy.exe is not installed for
+      # 1.95.0"). Install the pinned toolchain and the component up front so the
+      # clippy step is a check, not the discoverer of a missing tool.
+      - uses: dtolnay/rust-toolchain@1.95.0
+        with:
+          components: clippy
+
       # env.ps1 是给**这台机器**用的：本机记录显示 vcvars64.bat 损坏、
       # 三套 VS 里 `vswhere -latest` 指向不能编 C++ 的那套。GitHub 的 windows runner 带
       # 可用的 MSVC 与 Windows SDK，所以这里不 source 它 —— 在 CI 上 source 一个只对本机

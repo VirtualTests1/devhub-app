@@ -34,7 +34,7 @@
     "i18n:coverage": "node scripts/i18n-coverage.mjs",
     "contrast:audit": "node --experimental-strip-types --import ./tests/helpers/register.mjs scripts/contrast-audit.mjs",
     "rust:clippy": "cargo clippy --manifest-path src-tauri/Cargo.toml --lib -- -D warnings",
-    "test:coverage": "node --experimental-strip-types --experimental-test-coverage --import ./tests/helpers/register.mjs --test --test-concurrency=4 \"tests/**/*.test.ts\""
+    "test:coverage": "node --experimental-strip-types --experimental-test-coverage --test-coverage-lines=85 --test-coverage-branches=80 --test-coverage-functions=72 --import ./tests/helpers/register.mjs --test --test-concurrency=4 \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

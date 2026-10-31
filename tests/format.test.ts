@@ -9,7 +9,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { formatBytes, fmtAgo, fmtElapsed, formatNumber, fmtRelative, pad2 } from "../src/lib/format.ts";
+import {
+  formatBytes,
+  fmtAgo,
+  fmtDate,
+  fmtDateTime,
+  fmtElapsed,
+  fmtTime,
+  formatNumber,
+  fmtRelative,
+  getFormatLocale,
+  pad2,
+  setFormatLocale,
+} from "../src/lib/format.ts";
 
 test("formatBytes: byte tier", () => {
   assert.equal(formatBytes(0), "0 B");
@@ -122,6 +134,47 @@ test("fmtAgo: a future timestamp is not a negative age", () => {
   const now = Date.parse("2026-01-02T00:00:00Z");
   assert.equal(fmtAgo(now + 90_000, now), "0 秒前");
   assert.equal(fmtAgo(now + 90_000, now, { subMinute: "justNow" }), "刚刚");
+});
+
+test("fmtElapsed / fmtAgo follow the interface language, not the OS locale", () => {
+  const previous = getFormatLocale();
+  const now = Date.parse("2026-01-02T00:00:00Z");
+  try {
+    setFormatLocale("en");
+    assert.equal(fmtElapsed(500), "500 ms");
+    assert.equal(fmtElapsed(1000), "1 s");
+    assert.equal(fmtElapsed(60_000), "1 min 00 s");
+    assert.equal(fmtElapsed(2 * 3_600_000 + 5 * 60_000), "2 h 05 min");
+    assert.equal(fmtAgo(now - 45_000, now), "45s ago");
+    assert.equal(fmtAgo(now - 5 * 60_000, now), "5 min ago");
+    assert.equal(fmtAgo(now - 3 * 3_600_000, now), "3 h ago");
+    assert.equal(fmtAgo(now - 2 * 86_400_000, now), "2 d ago");
+    assert.equal(fmtRelative(0, now), "just now");
+    assert.equal(formatNumber(1234567), "1,234,567");
+  } finally {
+    setFormatLocale(previous);
+  }
+  assert.equal(fmtElapsed(500), "500 毫秒");
+});
+
+test("date helpers use the app language, replacing OS-locale toLocaleString", () => {
+  const previous = getFormatLocale();
+  // Local components on purpose: the formatter renders local time, so this does
+  // not depend on the machine's timezone.
+  const stamp = new Date(2026, 7, 12, 14, 20, 5).getTime();
+  try {
+    setFormatLocale("en");
+    assert.equal(fmtDate(stamp), "08/12/2026");
+    assert.equal(fmtTime(stamp), "02:20:05 PM");
+    assert.equal(fmtDateTime(stamp), "08/12/2026, 02:20:05 PM");
+    setFormatLocale("zh-CN");
+    assert.equal(fmtDate(stamp), "2026/08/12");
+    assert.equal(fmtTime(stamp), "14:20:05");
+    assert.equal(fmtDateTime(stamp), "2026/08/12 14:20:05");
+    assert.equal(fmtDate(Number.NaN), "Invalid Date");
+  } finally {
+    setFormatLocale(previous);
+  }
 });
 
 test("pad2: the two-digit register everything else borrows", () => {

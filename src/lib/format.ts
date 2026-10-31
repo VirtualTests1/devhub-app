@@ -13,6 +13,27 @@
  * re-export) and `tests/format.test.ts`.
  */
 
+/**
+ * The units these formatters speak.
+ *
+ * `i18n.ts` calls `setFormatLocale` whenever the interface language changes, so
+ * `fmtElapsed`/`fmtAgo` follow the same switch as the dictionary. It lives here
+ * rather than importing `Locale` from `i18n` on purpose: `i18n.ts` imports this
+ * module to push the locale, and a type-only import would still make the two
+ * modules depend on each other in both directions.
+ */
+export type FormatLocale = "zh-CN" | "en";
+
+let formatLocale: FormatLocale = "zh-CN";
+
+export function setFormatLocale(next: FormatLocale): void {
+  formatLocale = next === "en" ? "en" : "zh-CN";
+}
+
+export function getFormatLocale(): FormatLocale {
+  return formatLocale;
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
@@ -50,15 +71,16 @@ export function pad2(n: number): string {
 export function fmtElapsed(ms: number): string {
   const clamped = ms > 0 ? Math.floor(ms) : 0;
   const s = Math.floor(clamped / 1000);
-  if (s < 1) return `${clamped} 毫秒`;
-  if (s < 60) return `${s} 秒`;
+  const en = formatLocale === "en";
+  if (s < 1) return en ? `${clamped} ms` : `${clamped} 毫秒`;
+  if (s < 60) return en ? `${s} s` : `${s} 秒`;
   const m = Math.floor(s / 60);
-  if (m < 60) return `${m} 分 ${pad2(s % 60)} 秒`;
-  return `${Math.floor(m / 60)} 小时 ${pad2(m % 60)} 分`;
+  if (m < 60) return en ? `${m} min ${pad2(s % 60)} s` : `${m} 分 ${pad2(s % 60)} 秒`;
+  return en ? `${Math.floor(m / 60)} h ${pad2(m % 60)} min` : `${Math.floor(m / 60)} 小时 ${pad2(m % 60)} 分`;
 }
 
 export function formatNumber(n: number): string {
-  return n.toLocaleString();
+  return n.toLocaleString(formatLocale);
 }
 
 /**
@@ -98,13 +120,58 @@ function localStamp(ms: number): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
 }
 
+/**
+ * Localized date + time, replacing `Date#toLocaleString()` at the call sites.
+ *
+ * `toLocaleString()` without an argument follows the *operating system* locale,
+ * so an English UI on a Chinese Windows printed `2026/10/31 14:20:00` inside
+ * English sentences. These helpers pin the locale to the app's language switch.
+ * `seconds` stays in the time output because the values they replace included
+ * them (crash time, download end, commit dates).
+ */
+export function fmtDateTime(ms: number): string {
+  if (!Number.isFinite(ms)) return "Invalid Date";
+  return new Intl.DateTimeFormat(formatLocale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(ms);
+}
+
+/** Localized clock time (seconds included), the `toLocaleTimeString()` replacement. */
+export function fmtTime(ms: number): string {
+  if (!Number.isFinite(ms)) return "Invalid Date";
+  return new Intl.DateTimeFormat(formatLocale, {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(ms);
+}
+
+/** Localized calendar date, the `toLocaleDateString()` replacement. */
+export function fmtDate(ms: number): string {
+  if (!Number.isFinite(ms)) return "Invalid Date";
+  return new Intl.DateTimeFormat(formatLocale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(ms);
+}
+
 export function fmtAgo(ts: number, now: number = Date.now(), style: AgoStyle = {}): string {
   const secs = Math.max(0, Math.floor((now - ts) / 1000));
-  if (secs < 60) return style.subMinute === "justNow" ? "刚刚" : `${secs} 秒前`;
-  if (secs < 3600) return `${Math.floor(secs / 60)} 分钟前`;
-  if (secs < 86_400) return `${Math.floor(secs / 3600)} 小时前`;
+  const en = formatLocale === "en";
+  if (secs < 60) {
+    if (style.subMinute === "justNow") return en ? "just now" : "刚刚";
+    return en ? `${secs}s ago` : `${secs} 秒前`;
+  }
+  if (secs < 3600) return en ? `${Math.floor(secs / 60)} min ago` : `${Math.floor(secs / 60)} 分钟前`;
+  if (secs < 86_400) return en ? `${Math.floor(secs / 3600)} h ago` : `${Math.floor(secs / 3600)} 小时前`;
   if (style.pastDay === "date") return localStamp(ts);
-  return `${Math.floor(secs / 86_400)} 天前`;
+  return en ? `${Math.floor(secs / 86_400)} d ago` : `${Math.floor(secs / 86_400)} 天前`;
 }
 
 /**
@@ -116,6 +183,6 @@ export function fmtAgo(ts: number, now: number = Date.now(), style: AgoStyle = {
  * is the caller's "no data" convention, not a fact about the ladder.
  */
 export function fmtRelative(ts: number, now: number = Date.now()): string {
-  if (!ts) return "刚刚";
+  if (!ts) return formatLocale === "en" ? "just now" : "刚刚";
   return fmtAgo(ts, now, { subMinute: "justNow", pastDay: "days" });
 }

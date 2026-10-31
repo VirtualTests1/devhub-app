@@ -46,6 +46,8 @@
  * store + lookup with zero runtime dependencies.
  */
 
+import { setFormatLocale } from "./format";
+
 /** The two locales the app ships. zh-CN is the default and the fallback. */
 export type Locale = "zh-CN" | "en";
 
@@ -2552,6 +2554,7 @@ export function readLocale(): Locale {
 }
 
 let locale: Locale = readLocale();
+setFormatLocale(locale);
 
 export function getLocale(): Locale {
   return locale;
@@ -2577,6 +2580,7 @@ export function subscribeLocale(cb: () => void): () => void {
 export function setLocale(next: Locale): void {
   if (!isLocale(next) || next === locale) return;
   locale = next;
+  setFormatLocale(next);
   try {
     localStorage.setItem(LOCALE_STORAGE_KEY, JSON.stringify(next));
   } catch {

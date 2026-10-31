@@ -28,7 +28,6 @@ export const ALLOWLIST = new Map([
   ["clear_search_cache", "clears the in-memory search cache map"],
   ["git_bootstrap_status", "reads the in-memory bootstrap outcome"],
   ["assess_launch_commands", "bounded regexes over the handful of commands being edited"],
-  ["apply_config_value", "pure formatting of one setting value into the loaded config"],
   ["clear_env_cache", "clears the in-memory environment TTL map"],
   ["note_boot_painted", "dispatches window.show() to the main thread; moving it would only add a hop"],
   ["app_version", "returns a compile-time constant"],

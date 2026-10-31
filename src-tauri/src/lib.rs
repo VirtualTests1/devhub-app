@@ -582,13 +582,41 @@ fn reap(g: &mut std::collections::HashMap<u32, Tracked>) {
     }
 }
 
+/// The scalar fields of one tracked process, copied out so the table lock can
+/// be dropped before `proc::metrics` opens a handle or walks the process.
+struct ProcRow {
+    pid: u32,
+    label: String,
+    slug: String,
+    started: std::time::Instant,
+    ran_for: Option<std::time::Duration>,
+    exited: bool,
+    code: Option<i32>,
+    suspended: bool,
+}
+
+impl ProcRow {
+    fn from_tracked(pid: u32, t: &Tracked) -> Self {
+        ProcRow {
+            pid,
+            label: t.label.clone(),
+            slug: t.slug.clone(),
+            started: t.started,
+            ran_for: t.ran_for,
+            exited: t.exited,
+            code: t.code,
+            suspended: t.suspended,
+        }
+    }
+}
+
 /// Polls every tracked process for one project.
 #[tauri::command(async)]
 fn process_states(
     settings: tauri::State<'_, Settings>,
     slug: String,
 ) -> Result<Vec<ProcessState>, String> {
-    let mut out = Vec::new();
+    let mut rows = Vec::new();
     let mut stale = Vec::new();
     if let Ok(mut g) = settings.procs.lock() {
         reap(&mut g);
@@ -603,12 +631,16 @@ fn process_states(
             if t.exited && t.exited_at.map(|at| at.elapsed() > EXITED_TTL).unwrap_or(false) {
                 stale.push(*pid);
             }
-            out.push(summarise(*pid, t));
+            rows.push(ProcRow::from_tracked(*pid, t));
         }
         for pid in stale {
             g.remove(&pid);
         }
     }
+    // `summarise_row` queries Win32 for CPU/working-set/I/O. That used to happen
+    // while the table mutex was held, so stopping/suspending/launching a process
+    // waited behind a metrics query for every row.
+    let mut out: Vec<ProcessState> = rows.iter().map(summarise_row).collect();
     out.sort_by_key(|p| p.pid);
     Ok(out)
 }
@@ -621,7 +653,7 @@ fn process_states(
 /// the strip and the wall only render running/suspended processes; the per-project
 /// launch dialog uses `process_states`, which keeps the exit rows it needs.
 fn snapshot_processes(procs: &ProcTable) -> Vec<ProcessState> {
-    let mut out = Vec::new();
+    let mut rows = Vec::new();
     if let Ok(mut g) = procs.lock() {
         reap(&mut g);
         // Drop dead entries past their TTL here too, or a closed dialog would
@@ -643,9 +675,10 @@ fn snapshot_processes(procs: &ProcTable) -> Vec<ProcessState> {
             if t.exited {
                 continue;
             }
-            out.push(summarise(*pid, t));
+            rows.push(ProcRow::from_tracked(*pid, t));
         }
     }
+    let mut out: Vec<ProcessState> = rows.iter().map(summarise_row).collect();
     out.sort_by_key(|p| p.pid);
     out
 }
@@ -659,34 +692,42 @@ fn live_processes(settings: tauri::State<'_, Settings>) -> Result<Vec<ProcessSta
     Ok(snapshot_processes(&settings.procs))
 }
 
-fn summarise(pid: u32, t: &Tracked) -> ProcessState {
-    let elapsed = match t.ran_for {
+fn summarise_row(row: &ProcRow) -> ProcessState {
+    let elapsed = match row.ran_for {
         Some(d) => d,
-        None => t.started.elapsed(),
+        None => row.started.elapsed(),
     };
     // A reaped PID can be reused, so an exited row deliberately keeps its last
     // known "unknown" rather than querying whatever process inherited the number.
-    let metrics = if t.exited { None } else { proc::metrics(pid) };
+    let metrics = if row.exited { None } else { proc::metrics(row.pid) };
     ProcessState {
-        pid,
-        label: t.label.clone(),
-        slug: t.slug.clone(),
-        state: if t.exited {
+        pid: row.pid,
+        label: row.label.clone(),
+        slug: row.slug.clone(),
+        state: if row.exited {
             "exited".into()
-        } else if t.suspended {
+        } else if row.suspended {
             "suspended".into()
         } else {
             "running".into()
         },
-        exit_code: t.code,
+        exit_code: row.code,
         elapsed_ms: elapsed.as_millis() as u64,
-        stoppable: !t.exited,
-        suspendable: !t.exited,
+        stoppable: !row.exited,
+        suspendable: !row.exited,
         cpu_ms: metrics.map(|m| m.cpu_ms),
         working_set_bytes: metrics.map(|m| m.working_set_bytes),
         io_read_bytes: metrics.map(|m| m.read_bytes),
         io_write_bytes: metrics.map(|m| m.write_bytes),
     }
+}
+
+/// Test-only convenience: the old `summarise(pid, &Tracked)` shape used by the
+/// process-table unit test. Production paths copy a `ProcRow` under the lock and
+/// call `summarise_row` after dropping it.
+#[cfg(test)]
+fn summarise(pid: u32, t: &Tracked) -> ProcessState {
+    summarise_row(&ProcRow::from_tracked(pid, t))
 }
 
 /// 挂起 / 恢复 a launched process and its whole child tree.
@@ -3338,15 +3379,21 @@ async fn reveal_path(app: tauri::AppHandle, path: String) -> Result<(), String> 
 /// token, and the only caller here is a button that already knows which of the
 /// handful of undoable keys it is restoring.
 #[tauri::command]
-fn apply_config_value(
+async fn apply_config_value(
     settings: tauri::State<'_, Settings>,
     key: String,
     value: String,
 ) -> Result<SettingsView, String> {
     // One gated transaction rather than a bare read/write pair: the 回退 button and a
-    // concurrent 保存 hit the same file.
-    update_config(|cfg| restore_config_value(cfg, &key, &value))?;
-    let cfg = read_config();
+    // concurrent 保存 hit the same file. The file write is a gated fsync; on this
+    // machine's D: drive that is ~1 s, and as a synchronous command it ran on the
+    // window thread on every 回退 click.
+    let cfg = tauri::async_runtime::spawn_blocking(move || -> Result<AppConfig, String> {
+        update_config(|cfg| restore_config_value(cfg, &key, &value))?;
+        Ok(read_config())
+    })
+    .await
+    .map_err(|e| format!("回退任务异常: {e}"))??;
     // The managed copy is what `build_config` reads on the next download, and
     // `save_settings` already refreshes these two flags. This path did not, so a 回退
     // of `mirrorEnabled` reported success in the UI and then kept downloading through

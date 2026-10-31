@@ -18,7 +18,7 @@ Windows 桌面应用：把 GitHub 项目集中到一个图标墙，完成搜索�
 ## 环境
 
 - Windows 10/11，WebView2。
-- 源码构建：Node.js 20.19+、pnpm 10+、Rust、MSVC。
+- 源码构建：Node.js 22.6+、pnpm 10+、Rust、MSVC。测试直接用 `node --experimental-strip-types` 运行 `.ts`，该参数自 Node 22.6.0 引入（CI 用 22.x 验证）。
 
 ## 运行
 

@@ -42,7 +42,8 @@ jobs:
           node-version: 22
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
-          # `--experimental-strip-types` 在 Node 22.18+ 才有；本仓 tests 依赖它直接跑 .ts。
+          # `--experimental-strip-types` 自 Node 22.6.0 引入（官方 v22.6.0 release notes）；
+          # 本仓 tests 依赖它直接跑 .ts。22.18 起类型剥离默认开启，flag 仍可显式传入。
           # 若将来升到 23.6+/24，这个 flag 变成默认行为，脚本仍然可用。
 
       - name: 安装依赖（严格按 lockfile）

@@ -46,3 +46,24 @@ cargo test --lib bench_write_burst_coverage -- --ignored --nocapture
 - `ReadDirectoryChangesW`：
   <https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-readdirectorychangesw>
 - 本机 `cargo test` 输出（2026-10-29，§3）。
+
+## 4. 停止路径（2026-10-31，r35）
+
+`NativeWatch::drop` 先 `CancelIoEx(handle, NULL)` 再 `join`，而读取线程用的是**同步**
+`ReadDirectoryChangesW`（`OVERLAPPED` 为 null）。同步 I/O 是否响应 `CancelIoEx` 一直
+没有单独验证过；如果不响应，应用退出或 watcher 刷新会一直等到目录下一次变化。
+
+实验：启动 watcher，等 100 ms 让读取线程进入 `ReadDirectoryChangesW`，然后 drop，
+测量 `cancel + join` 的时间：
+
+```powershell
+cargo test --lib dropping_the_watcher -- --nocapture
+# native watcher drop: 0 ms
+# test result: ok. 1 passed
+```
+
+结论：在这台 Windows 10/11 上，`CancelIoEx(handle, NULL)` 能唤醒同步
+`ReadDirectoryChangesW`，`drop` 在 0 ms 返回；不需要 `CancelSynchronousIo` 或改用
+overlapped I/O。测试保留为 5 秒上限的回归（`native_watch.rs` 的
+`dropping_the_watcher_does_not_hang_the_thread`）。仍未测：真实编辑器长时间运行下的
+漏事件率；本实验只覆盖合成的 500 文件密集写入与停止路径。

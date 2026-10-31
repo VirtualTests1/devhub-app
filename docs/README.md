@@ -43,7 +43,7 @@
 - [code-signing](research/code-signing.md)：签名与发布流水线仍未建立；当前 Release 仅源码。
 - [toolchain-supply](research/toolchain-supply-2026-10-30.md)：clippy/audit 已进门禁，
   覆盖率阈值仍未设；工具链版本在 r35 固定到 CI 的 `RUSTUP_TOOLCHAIN`。
-- [native-watch-stress](research/native-watch-stress.md)：覆盖率实验已做（合成负载），
-  停止路径的 `CancelIoEx` 同步 I/O 行为仍未单独验证。
+- [native-watch-stress](research/native-watch-stress.md)：覆盖率实验与停止路径均已测（合成负载；
+  `CancelIoEx` 在同步读上 0 ms 返回），真实编辑器的长期漏事件率仍未测。
 - [dependency-alerts](research/dependency-alerts.md)：`glib` 中危告警按 Linux-only 接受，
   仍保留 Dependabot 监控。

@@ -310,11 +310,13 @@ mod tests {
         std::thread::sleep(Duration::from_millis(100));
         let t0 = Instant::now();
         drop(watch);
+        let elapsed = t0.elapsed();
         // 5 s, not 2: this test runs beside ~395 others, and a full `cargo test
         // --lib` on this machine's D: volume once measured the drop at >2 s while
         // the same test alone took 0.14 s. The assertion is "does not hang", not
         // "meets a latency budget"; 5 s still fails a genuinely stuck join.
-        assert!(t0.elapsed() < Duration::from_secs(5), "cancel + join must be prompt");
+        println!("native watcher drop: {} ms", elapsed.as_millis());
+        assert!(elapsed < Duration::from_secs(5), "cancel + join must be prompt");
     }
 
     /// How many names a real 500-file burst puts through this channel, and how

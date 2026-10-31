@@ -28,6 +28,11 @@ use std::process::Stdio;
 use std::sync::mpsc;
 use std::time::Instant;
 
+/// Small read/write probes against a repository (`rev-parse`, `remote get-url`,
+/// `rev-list --count`, the credential scrub). A locked repo on a network share
+/// used to park a freshness batch or startup scrub here forever.
+const GIT_PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 // ---------------------------------------------------------------------------
 // Public types (mirrored in TypeScript)
 // ---------------------------------------------------------------------------
@@ -215,16 +220,17 @@ pub fn scrub_origin_credentials(
     let Some(clean) = url_without_devhub_credentials(&url) else {
         return Ok(None);
     };
-    let out = git_cmd(git)
-        .arg("-C")
+    let mut cmd = git_cmd(git);
+    cmd.arg("-C")
         .arg(repo)
         .arg("remote")
         .arg("set-url")
         .arg("origin")
         .arg(&clean)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|e| format!("无法启动 git: {e}"))?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let out = crate::proc::output_timeout(&mut cmd, GIT_PROBE_TIMEOUT)
+        .map_err(|e| format!("无法启动 git: {e}"))?
+        .ok_or_else(|| "设置 origin 超时".to_string())?;
     if !out.status.success() {
         return Err(truncate(
             &redact_secrets(&crate::proc::decode_console(&out.stderr)),
@@ -2546,14 +2552,13 @@ fn run_ls_remote(
 /// `PATH` once per tile (measured: 2.8 s uncached, 0 ms warm).
 pub fn local_head(repo: &Path) -> Option<String> {
     let git = find_git(None)?;
-    let out = git_cmd(std::path::Path::new(&git.path))
-        .arg("-C")
+    let mut cmd = git_cmd(std::path::Path::new(&git.path));
+    cmd.arg("-C")
         .arg(repo)
         .arg("rev-parse")
         .arg("HEAD")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .ok()?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let out = crate::proc::output_timeout(&mut cmd, GIT_PROBE_TIMEOUT).ok()??;
     if !out.status.success() {
         return None;
     }
@@ -3009,15 +3014,14 @@ fn recent_commits(repo: &Path, from: &str, to: &str, limit: usize) -> Vec<Commit
 
 fn count_commits(repo: &Path, from: &str, to: &str) -> Option<u32> {
     let git = find_git(None)?;
-    let out = git_cmd(std::path::Path::new(&git.path))
-        .arg("-C")
+    let mut cmd = git_cmd(std::path::Path::new(&git.path));
+    cmd.arg("-C")
         .arg(repo)
         .arg("rev-list")
         .arg("--count")
         .arg(format!("{from}..{to}"))
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .ok()?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let out = crate::proc::output_timeout(&mut cmd, GIT_PROBE_TIMEOUT).ok()??;
     if !out.status.success() {
         return None;
     }
@@ -3026,15 +3030,14 @@ fn count_commits(repo: &Path, from: &str, to: &str) -> Option<u32> {
 
 /// The repository's own `origin` URL, when it has one.
 fn remote_origin_url(git: &Path, repo: &Path) -> Option<String> {
-    let out = git_cmd(git)
-        .arg("-C")
+    let mut cmd = git_cmd(git);
+    cmd.arg("-C")
         .arg(repo)
         .arg("remote")
         .arg("get-url")
         .arg("origin")
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .ok()?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let out = crate::proc::output_timeout(&mut cmd, GIT_PROBE_TIMEOUT).ok()??;
     if !out.status.success() {
         return None;
     }

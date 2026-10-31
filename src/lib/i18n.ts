@@ -2411,6 +2411,13 @@ const ZH = {
   "secret.kind.slack": "Slack 令牌",
   "secret.kind.stripe": "Stripe 密钥",
   "secret.kind.generic": "高熵赋值",
+  // 清空记录是破坏性动作，提示语与结果原先写死在 `lib/activity.ts` 里，英文界面
+  // 仍弹中文确认框（记录页与设置页共用这一处）。
+  "activity.clearConfirm": "确定清空全部操作记录？这一步不可撤销，缩短保留时长也会删历史。",
+  "activity.clearTitle": "清空操作记录",
+  "activity.clearOk": "清空",
+  "activity.cleared": "操作记录已清空",
+  "activity.clearFailed": "清空失败：{msg}",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

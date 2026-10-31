@@ -199,7 +199,7 @@ test("i18n: 两份词表的槽名逐键一致（英文可以挪位置，不能�
 //
 // 钉法：在数组首 5 条、其后每约 50 个键、以及末 4 条上逐字节钉住 键→英文 映射。
 // 最大采样间隔 50，所以任何一处插入/删除/错位都会让「错位点之后的某个钉子」对不上。
-test("i18n: 英文按 ZH 键序对位——错位即失败（首尾 + 每约 50 键，25 条逐字节）", () => {
+test("i18n: 英文按 ZH 键序对位——错位即失败（首尾 + 每约 50 键，30 条逐字节）", () => {
   const pins: [string, string][] = [
     ["view.projects", "Projects"],
     ["view.add", "Add"],
@@ -226,6 +226,11 @@ test("i18n: 英文按 ZH 键序对位——错位即失败（首尾 + 每约 50 
     ["shortcutHelp.resetOne", "Reset"],
     ["shortcutHelp.resetAll", "Reset all"],
     ["shortcutHelp.unparsable", "That combination cannot be bound: {chord}"],
+    ["activity.clearConfirm", "Clear all operation records? This cannot be undone, and shortening the retention period also deletes history."],
+    ["activity.clearTitle", "Clear operation records"],
+    ["activity.clearOk", "Clear"],
+    ["activity.cleared", "Operation records cleared"],
+    ["activity.clearFailed", "Failed to clear: {msg}"],
   ];
   const shifted = pins
     .filter(([key, want]) => EN[key] !== want)

@@ -1,4 +1,5 @@
 import { ask as askDialog } from "@tauri-apps/plugin-dialog";
+import { t } from "./i18n";
 
 /**
  * A single, consistent confirmation for *destructive* actions.
@@ -20,6 +21,6 @@ export async function confirmDestructive(
     title: opts.title,
     kind: "warning",
     okLabel: opts.okLabel,
-    cancelLabel: "取消",
+    cancelLabel: t("iface.cancel"),
   });
 }

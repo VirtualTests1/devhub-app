@@ -1,5 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { confirmDestructive } from "./confirm";
+import { t } from "./i18n";
+import { messageOf } from "./report-error";
 import { toast } from "../store/toast";
 
 /**
@@ -12,17 +14,17 @@ import { toast } from "../store/toast";
 export async function confirmAndClearActivity(): Promise<boolean> {
   // The native dialog rather than window.confirm: a webview confirm is
   // easy to dismiss without reading, and this one deletes a file.
-  const ok = await confirmDestructive("确定清空全部操作记录？这一步不可撤销，缩短保留时长也会删历史。", {
-    title: "清空操作记录",
-    okLabel: "清空",
+  const ok = await confirmDestructive(t("activity.clearConfirm"), {
+    title: t("activity.clearTitle"),
+    okLabel: t("activity.clearOk"),
   });
   if (!ok) return false;
   try {
     await invoke("clear_activity");
-    toast.success("操作记录已清空");
+    toast.success(t("activity.cleared"));
     return true;
   } catch (e) {
-    toast.error(`清空失败：${String(e)}`);
+    toast.error(t("activity.clearFailed", { msg: messageOf(e) }));
     return false;
   }
 }

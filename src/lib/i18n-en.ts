@@ -2185,4 +2185,9 @@ export const EN_VALUES = [
   "Slack token",
   "Stripe key",
   "High-entropy assignment",
+  "Clear all operation records? This cannot be undone, and shortening the retention period also deletes history.",
+  "Clear operation records",
+  "Clear",
+  "Operation records cleared",
+  "Failed to clear: {msg}",
 ] as const;

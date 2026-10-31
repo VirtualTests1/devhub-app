@@ -17,4 +17,8 @@
 - License: Apache-2.0 (stated in the BOM schema's `$comment`); the SPDX list version is `v1.1-3.29.0`.
 - Purpose: offline validation for `scripts/sbom.mjs`.
 
-No other third-party binaries are tracked in this repository. Dependency licenses are reported by `pnpm license:report` and the SBOM.
+No other third-party binaries are tracked in this repository. npm dependency licenses are
+reported by `pnpm license:report` and resolved in the SBOM. Cargo crate licenses are recorded
+as unknown in the SBOM: `src-tauri/Cargo.lock` carries no license field, and reading each
+crate's archived `Cargo.toml` is a separate parser and a machine-local cache dependency
+(see `scripts/sbom.mjs`). That is a known gap, not a clean bill of health for the Rust tree.

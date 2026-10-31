@@ -31,6 +31,9 @@ const DEFAULT_LIMIT: usize = 30;
 const MAX_LIMIT: usize = 100;
 /// A local log should answer in milliseconds; ten seconds is already a fault.
 const LOG_TIMEOUT: Duration = Duration::from_secs(10);
+/// `rev-parse` probes still touch the repository (and can sit on a network share
+/// or a locked index); the bounded form is what keeps the dialog answerable.
+const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -80,24 +83,29 @@ fn clamp_limit(limit: Option<usize>) -> usize {
 /// Read commits from one repository. Split from the command so the git shape is
 /// testable without a project root.
 pub(crate) fn read_commits(repo: &Path, git: &Path, limit: usize) -> Result<Vec<CommitInfo>, String> {
-    let head = crate::downloader::git_cmd(git)
+    let mut head_cmd = crate::downloader::git_cmd(git);
+    head_cmd
         .arg("-C")
         .arg(repo)
         .args(["rev-parse", "--verify", "HEAD"])
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
-        .map_err(|e| format!("无法运行 git: {e}"))?;
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let head = crate::proc::output_timeout(&mut head_cmd, PROBE_TIMEOUT)
+        .map_err(|e| format!("无法运行 git: {e}"))?
+        .ok_or_else(|| "读取 HEAD 超时".to_string())?;
     if !head.status.success() {
         // No HEAD is expected for an empty clone. A directory that is not a
         // repository at all must not be reported as "empty": one more probe
         // separates the two, and only the empty case is a successful answer.
-        let in_repo = crate::downloader::git_cmd(git)
+        let mut repo_cmd = crate::downloader::git_cmd(git);
+        repo_cmd
             .arg("-C")
             .arg(repo)
             .arg("rev-parse")
             .arg("--git-dir")
-            .env("GIT_TERMINAL_PROMPT", "0")
-            .output()
+            .env("GIT_TERMINAL_PROMPT", "0");
+        let in_repo = crate::proc::output_timeout(&mut repo_cmd, PROBE_TIMEOUT)
+            .ok()
+            .flatten()
             .map(|o| o.status.success())
             .unwrap_or(false);
         if !in_repo {

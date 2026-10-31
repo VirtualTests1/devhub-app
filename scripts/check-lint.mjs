@@ -64,6 +64,15 @@ const LINT_BASELINE = {
   // no problems on this tree — empty baseline
 };
 
+/**
+ * A report with fewer files than this is not a clean tree; it is a linter that
+ * stopped seeing the tree (a broken `files` glob, a config that excludes src, a
+ * report from the wrong cwd). Measured 2026-10-31: `eslint . -f json` returns 477
+ * file results on this checkout. 400 leaves room for deleting test files but
+ * fails the collapse case the same way the IPC/event floors do.
+ */
+export const MIN_LINT_FILES = 400;
+
 // ---------------------------------------------------------------------------
 // Locate the installed eslint CLI
 // ---------------------------------------------------------------------------
@@ -121,16 +130,36 @@ export function evaluateLintReport(report, baseline = LINT_BASELINE) {
 
   const totalNow = Object.values(found).reduce((s, n) => s + n, 0);
   const totalBase = Object.values(baseline).reduce((s, n) => s + n, 0);
-  const failed = violations.length > 0 || fatal.length > 0;
-  return { found, fatal, violations, totalNow, totalBase, failed, baselineKeys: Object.keys(baseline).length };
+  const scannedFiles = report.length;
+  const tooFew = scannedFiles < MIN_LINT_FILES;
+  const failed = violations.length > 0 || fatal.length > 0 || tooFew;
+  return {
+    found,
+    fatal,
+    violations,
+    totalNow,
+    totalBase,
+    scannedFiles,
+    minFiles: MIN_LINT_FILES,
+    tooFew,
+    failed,
+    baselineKeys: Object.keys(baseline).length,
+  };
 }
 
 function printText(v, { enforcedBy = "" } = {}) {
   console.log("check-lint.mjs — ESLint ratchet (lint is enforced by the gate through this file)");
   console.log(
     `eslint: ${v.totalNow} problem(s) across ${Object.keys(v.found).length} file(s); ` +
+      `scanned ${v.scannedFiles} file(s) (minimum ${v.minFiles}); ` +
       `baseline grandfathered ${v.totalBase} across ${v.baselineKeys} file(s)${enforcedBy ? ` [${enforcedBy}]` : ""}`,
   );
+  if (v.tooFew) {
+    console.log(
+      `SCANNED TOO FEW FILES (${v.scannedFiles} < ${v.minFiles}): eslint reported a clean result over a tree it could not see. ` +
+        "Check the config/files glob and the invocation cwd; an empty report is not a pass.",
+    );
+  }
   if (v.fatal.length) {
     console.log("PARSE ERRORS (the file was never analysed, so it is a blind spot — never grandfathered):");
     for (const f of v.fatal) console.log(`  - ${f}`);
@@ -154,6 +183,9 @@ function printJson(v) {
         totalNow: v.totalNow,
         totalBaseline: v.totalBase,
         filesWithProblems: Object.keys(v.found).length,
+        scannedFiles: v.scannedFiles,
+        minFiles: v.minFiles,
+        tooFew: v.tooFew,
         baselineEntries: v.baselineKeys,
         fatal: v.fatal,
         violations: v.violations,
@@ -203,22 +235,27 @@ if (argv.includes("--selftest")) {
   const baseKeys = Object.keys(LINT_BASELINE);
   // A file path that cannot be a baseline key (a name --baseline would never emit).
   const NEW_FILE = "src/__check_lint_selftest_new__.tsx";
+  // Every scenario except the empty one carries a full-size clean report, so the
+  // scanned-file floor does not decide the scenario before the ratchet does.
+  const cleanReport = () =>
+    Array.from({ length: MIN_LINT_FILES }, (_, i) => mkFile(`src/__clean_${i}__.ts`, 0));
   const scenarios = [];
   if (baseKeys.length) {
     const k = baseKeys[0];
     const b = LINT_BASELINE[k];
-    scenarios.push(["grandfather at baseline → PASS", [mkFile(k, b)], false]);
-    scenarios.push(["over baseline → FAIL", [mkFile(k, b + 1)], true]);
-    scenarios.push(["pay-down below baseline → PASS", [mkFile(k, Math.max(0, b - 1))], false]);
+    scenarios.push(["grandfather at baseline → PASS", [...cleanReport(), mkFile(k, b)], false]);
+    scenarios.push(["over baseline → FAIL", [...cleanReport(), mkFile(k, b + 1)], true]);
+    scenarios.push(["pay-down below baseline → PASS", [...cleanReport(), mkFile(k, Math.max(0, b - 1))], false]);
     // A fatal in a within-baseline file must STILL fail: the count alone would pass.
-    scenarios.push(["fatal parse → FAIL", [mkFile(k, Math.min(b, 1), true)], true]);
+    scenarios.push(["fatal parse → FAIL", [...cleanReport(), mkFile(k, Math.min(b, 1), true)], true]);
   } else {
     // No grandfathered debt at all: a single problem in any file is a new violation.
-    scenarios.push(["any problem with empty baseline → FAIL", [mkFile(NEW_FILE, 1)], true]);
-    scenarios.push(["fatal parse → FAIL", [mkFile("src/App.tsx", 1, true)], true]);
+    scenarios.push(["any problem with empty baseline → FAIL", [...cleanReport(), mkFile(NEW_FILE, 1)], true]);
+    scenarios.push(["fatal parse → FAIL", [...cleanReport(), mkFile("src/App.tsx", 1, true)], true]);
   }
-  scenarios.push(["new file → FAIL", [mkFile(NEW_FILE, 1)], true]);
-  scenarios.push(["clean tree → PASS", [], false]);
+  scenarios.push(["new file → FAIL", [...cleanReport(), mkFile(NEW_FILE, 1)], true]);
+  scenarios.push(["clean tree → PASS", cleanReport(), false]);
+  scenarios.push(["empty report (eslint linted nothing) → FAIL", [], true]);
 
   let ok = true;
   for (const [name, rep, expectFail] of scenarios) {

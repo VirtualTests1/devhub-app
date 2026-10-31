@@ -225,6 +225,7 @@ test("check-lint --selftest: the ratchet logic (clean/over/new-file/parse-error)
   assert.match(out, /new file → FAIL/);
   assert.match(out, /fatal parse → FAIL/);
   assert.match(out, /clean tree → PASS/);
+  assert.match(out, /empty report \(eslint linted nothing\) → FAIL/);
 });
 
 test("check-lint --print-root: resolves ROOT and the eslint bin from its own file (cwd-independent)", () => {

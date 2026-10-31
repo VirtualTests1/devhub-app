@@ -89,10 +89,11 @@ const dead = [...listened.keys()].filter((n) => !emitted.has(n));
 // are both empty, and the OLD verdict was `OK: every event name has a peer on both
 // sides` / exit 0. Total loss of coverage reading as a pass. check-commands.mjs
 // already refuses this with INVOKED/REGISTERED floors; these are the same idea for
-// events. Set just under the measured 4 / 4 so ordinary churn (adding or removing
-// one event) never trips them, while a collapse (0, or the both-empty failure) does.
-const EMIT_FLOOR = 3;
-const LISTEN_FLOOR = 3;
+// events. Measured 2026-10-31: 9 emitted, 9 listened. Set just under that so
+// ordinary churn (adding or removing one event) never trips them, while a
+// collapse (0, or the both-empty failure) does.
+const EMIT_FLOOR = 8;
+const LISTEN_FLOOR = 8;
 const floorOk = emitted.size >= EMIT_FLOOR && listened.size >= LISTEN_FLOOR;
 
 console.log(`emitted from Rust:  ${emitted.size}`);

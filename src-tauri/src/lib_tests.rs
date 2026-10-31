@@ -1,3 +1,5 @@
+#![cfg(test)]
+
 use super::*;
 
     /// `update_repo` owes the freshness cache an eviction: after a pull moves

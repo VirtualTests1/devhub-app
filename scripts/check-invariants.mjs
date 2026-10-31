@@ -257,11 +257,15 @@ const SWALLOWED_ERROR = /\blet\s+_\s*(?::[^=;]*)?=|#\[allow\([^)]*unused_must_us
  * manual instructions. A deleted `#[test]` used to cost nothing: same green
  * gate, smaller suite.
  *
+ * Re-measured 2026-10-31: 520 attributes (the suite grew by 310 across rounds
+ * 17–34). The floor now follows the live count instead of the 2026-10-16
+ * baseline, which had stopped guarding most of the suite.
+ *
  * Raising this floor is a deliberate act: re-measure with the `rg` line above,
  * and say in the commit message why the suite grew. Lowering it means a test
  * really was removed — say which one and why that is not a loss.
  */
-const RUST_TEST_FLOOR = 210;
+const RUST_TEST_FLOOR = 520;
 // Measured in r20-O3 after `covers.rs` (6 328→6 386) and the three worktree command
 // shells left lib.rs: `node -e` split on "\n" over src-tauri/src/lib.rs = 7 734.
 // Round 18's extraction of deps.rs is the last time this file got smaller on
@@ -680,6 +684,11 @@ function stripComments(src, { rust = false, blankStrings = false, rawStrings = f
  */
 function stripCfgTest(text) {
   const lines = text.split("\n");
+  // A file can declare itself test-only with an inner attribute; `lib_tests.rs`
+  // is declared `#[cfg(test)] mod lib_tests;` and carries `#![cfg(test)]` so a
+  // move of the test module cannot make its fixtures look like production
+  // panics to this ratchet.
+  if (lines.slice(0, 10).some((l) => /^\s*#!\[cfg\(test\)\]\s*$/.test(l))) return "";
   const kept = [];
   let i = 0;
   while (i < lines.length) {
@@ -897,6 +906,10 @@ checkRustTestFloor();
 // check-docs.mjs, and `tests/` itself is excluded so a helper in a test does not have
 // to cite a real file just to describe a fixture.
 const TEST_REF = /\btests\/[A-Za-z0-9._-]+\.test\.ts\b/g;
+// Measured 2026-10-31: 38 distinct files are cited from source comments. A drop
+// means citations were deleted (or the scanners stopped matching), not that the
+// suite got better; `test-refs` used to pass at 0.
+const TEST_REF_FLOOR = 38;
 function checkTestRefs() {
   const files = [
     ...TS_FILES,
@@ -912,13 +925,16 @@ function checkTestRefs() {
       if (!existsSync(ref)) missing.push(`${f} → ${ref}`);
     }
   }
+  const tooFew = refs.size < TEST_REF_FLOOR;
   record(
     "test-refs",
-    missing.length ? "FAIL" : "PASS",
+    missing.length || tooFew ? "FAIL" : "PASS",
     refs.size,
     missing.length
       ? `${missing.length} reference(s) name a test file that does not exist: ${missing.join("; ")}`
-      : `${refs.size} distinct tests/*.test.ts citation(s) in src/scripts all resolve — a comment that claims a test pins it must be checkable`,
+      : tooFew
+        ? `only ${refs.size} distinct citation(s) vs floor ${TEST_REF_FLOOR} — the scanner or the comments collapsed`
+        : `${refs.size} distinct tests/*.test.ts citation(s) in src/scripts all resolve — a comment that claims a test pins it must be checkable`,
   );
 }
 checkTestRefs();
@@ -1977,10 +1993,20 @@ function runSwallowSelftest() {
       line: "let r = parse(&s).ok()?;",
       want: 0,
     },
+    {
+      name: "a file marked `#![cfg(test)]` contributes nothing",
+      text: "#![cfg(test)]\nuse super::*;\nfn t() { let _ = foo(); }",
+      want: 0,
+    },
+    {
+      name: "the same body without the file attribute still counts",
+      text: "use super::*;\nfn t() { let _ = foo(); }",
+      want: 1,
+    },
   ];
   let failed = 0;
   for (const c of cases) {
-    const got = countAll(c.line, SWALLOWED_ERROR);
+    const got = countAll(c.text !== undefined ? stripCfgTest(c.text) : c.line, SWALLOWED_ERROR);
     if (got !== c.want) {
       failed++;
       console.log(`  FAIL  ${c.name}\n        expected ${c.want} match(es), got ${got}`);

@@ -2418,6 +2418,7 @@ const ZH = {
   "activity.clearOk": "清空",
   "activity.cleared": "操作记录已清空",
   "activity.clearFailed": "清空失败：{msg}",
+  "grep.timedOut": "扫描在 {seconds} 秒上限处停止，结果可能不完整。",
 } as const;
 
 export type TranslationKey = keyof typeof ZH;

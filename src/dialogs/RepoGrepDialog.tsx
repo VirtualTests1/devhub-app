@@ -1,12 +1,13 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { CircleCheckBig, Copy, FileSearch, LoaderCircle } from "lucide-react";
+import { CircleCheckBig, Copy, FileSearch, LoaderCircle, TriangleAlert } from "lucide-react";
 import { DialogShell } from "../components/DialogShell";
 import { toast } from "../components/Toast";
 import { useI18n } from "../lib/useI18n";
 import { reportError } from "../lib/report-error";
 import { cn } from "../lib/utils";
 import {
+  GREP_DEADLINE_SECONDS,
   GREP_LIMIT,
   PATTERN_MAX,
   checkPattern,
@@ -29,7 +30,8 @@ import type { RepoRef } from "../types";
  *
  * 选型结论（历史记录）：`repo_grep` 返回「哪个文件哪一行」、
  * 自身不排序、跨仓库形态召回为 0，所以这个界面从入口到参数都**钉在一个仓库上**——
- * 从卡片右键菜单打开，`root` 就是这张卡片的 `path`，没有仓库选择器，也没有相关性
+ * 从卡片右键菜单打开，`slug` 是这张卡片的身份，`root` 只用于「在资源管理器打开」
+ * 与结果路径拼接；命令本身按 slug 在索引用解析，页面不能把任意路径交给扫描。没有仓库选择器，也没有相关性
  * 排序。要「哪个项目跟我相关」那一层，是命令面板 / 项目墙的事，不是这里。
  *
  * ## 入口为什么在卡片右键菜单
@@ -71,6 +73,7 @@ const grepInvoke: GrepInvoke = (cmd, args) => invoke<GrepResult>(cmd, args);
 export function RepoGrepDialog({ card, onClose }: { card: Card | null; onClose: () => void }) {
   const { t } = useI18n();
   const root = (card?.path ?? "").trim();
+  const slug = (card?.slug ?? "").trim();
   const listId = useId();
 
   const [pattern, setPattern] = useState("");
@@ -98,8 +101,8 @@ export function RepoGrepDialog({ card, onClose }: { card: Card | null; onClose: 
   }, []);
 
   const query = (mode: "run" | "type") => {
-    if (!root) return;
-    const q = { root, pattern, caseInsensitive: ci };
+    if (!slug) return;
+    const q = { slug, pattern, caseInsensitive: ci };
     if (mode === "run") sessionRef.current?.run(q);
     else sessionRef.current?.type(q);
   };
@@ -109,8 +112,8 @@ export function RepoGrepDialog({ card, onClose }: { card: Card | null; onClose: 
     setCi(next);
     // 显式点击 → 立即重查（不是打字，没有防抖的理由）；输入还不能问就不问，
     // 不借这次点击弹一张「先输入」的脸。
-    if (root && checkPattern(pattern) === null) {
-      sessionRef.current?.run({ root, pattern, caseInsensitive: next });
+    if (slug && checkPattern(pattern) === null) {
+      sessionRef.current?.run({ slug, pattern, caseInsensitive: next });
     }
   };
 
@@ -189,6 +192,11 @@ export function RepoGrepDialog({ card, onClose }: { card: Card | null; onClose: 
             {view.kind === "hits" && view.truncated && (
               <span className="text-caption text-warning">{t("grep.truncated", { limit: GREP_LIMIT })}</span>
             )}
+            {view.kind === "hits" && view.timedOut && (
+              <span className="text-caption text-warning">
+                {t("grep.timedOut", { seconds: GREP_DEADLINE_SECONDS })}
+              </span>
+            )}
           </div>
         ) : null
       }
@@ -209,9 +217,9 @@ export function RepoGrepDialog({ card, onClose }: { card: Card | null; onClose: 
               onChange={(e) => {
                 setPattern(e.target.value);
                 // 打字走防抖：会话自己作废上一次计划与在途回答。
-                if (!root) return;
+                if (!slug) return;
                 sessionRef.current?.type({
-                  root,
+                  slug,
                   pattern: e.target.value,
                   caseInsensitive: ci,
                 });
@@ -271,12 +279,21 @@ export function RepoGrepDialog({ card, onClose }: { card: Card | null; onClose: 
 
           {view.kind === "empty" && (
             <div className="flex items-start gap-2 py-3">
-              <CircleCheckBig className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              {view.timedOut ? (
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              ) : (
+                <CircleCheckBig className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              )}
               <div>
                 <p className="text-body font-medium text-foreground">{t("grep.emptyTitle")}</p>
                 <p className="mt-0.5 text-caption leading-snug text-muted-foreground">
                   {t("grep.emptyHint", { files: view.filesScanned, ms: view.elapsedMs })}
                 </p>
+                {view.timedOut && (
+                  <p className="mt-0.5 text-caption leading-snug text-warning">
+                    {t("grep.timedOut", { seconds: GREP_DEADLINE_SECONDS })}
+                  </p>
+                )}
                 {view.filesSkipped > 0 && (
                   <p className="mt-0.5 text-caption leading-snug text-muted-foreground">
                     {t("grep.skipped", { n: view.filesSkipped })}

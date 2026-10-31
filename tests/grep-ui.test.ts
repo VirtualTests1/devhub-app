@@ -54,19 +54,19 @@ function makeResult(over: Partial<GrepResult> = {}): GrepResult {
 // ---------------------------------------------------------------------------
 // 1. 请求形状：单仓库 + camelCase 按键 + 显式 limit
 
-test("runGrep: 调的是 repo_grep，参数是单个 root/pattern + camelCase + 显式 limit", async () => {
+test("runGrep: 调的是 repo_grep，参数是单个 slug/pattern + camelCase + 显式 limit", async () => {
   const seen: { cmd?: string; args?: Record<string, unknown> } = {};
   const fake: GrepInvoke = async (cmd, args) => {
     seen.cmd = cmd;
     seen.args = args;
     return makeResult();
   };
-  const out = await runGrep(fake, { root: "D:\\proj\\demo", pattern: "TODO", caseInsensitive: true });
+  const out = await runGrep(fake, { slug: "owner/demo", pattern: "TODO", caseInsensitive: true });
   assert.equal(seen.cmd, "repo_grep");
   // `caseInsensitive` 是驼峰：Tauri 2 把 JS 按键转成 Rust 形参 `case_insensitive`
   // （同仓先例 `createNew` → `create_new`），传 snake_case 会静默落成 None。
   assert.deepEqual(seen.args, {
-    root: "D:\\proj\\demo",
+    slug: "owner/demo",
     pattern: "TODO",
     caseInsensitive: true,
     limit: GREP_LIMIT,
@@ -147,6 +147,21 @@ test("classify: 有命中按文件分组；命中数碰到 limit 才标截断", 
   }
 });
 
+test("classify: 后端的截断/超时标记必须传到界面,哪怕是零命中", () => {
+  const hits = [{ file: "a.ts", line: 1, content: "x" }];
+  const cut = classify(makeResult({ hits, truncated: true, timed_out: true }), 500);
+  assert.equal(cut.kind, "hits");
+  if (cut.kind === "hits") {
+    assert.equal(cut.truncated, true, "backend said truncated");
+    assert.equal(cut.timedOut, true, "backend said timed out");
+  }
+  const empty = classify(makeResult({ timed_out: true }), 500);
+  assert.equal(empty.kind, "empty");
+  if (empty.kind === "empty") {
+    assert.equal(empty.timedOut, true, "零命中 + 超时不是「完整地没找到」");
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 4. 会话：loading 顺序、竞态、dispose、空输入
 
@@ -155,7 +170,7 @@ test("session: run 先发 loading，回答落地后给 classify 的最终态", a
   const fake: GrepInvoke = async () =>
     makeResult({ hits: [{ file: "a.ts", line: 1, content: "x" }], files_scanned: 1 });
   const session = createGrepSession({ invoke: fake, emit: (v) => views.push(v) });
-  session.run({ root: "D:\\p", pattern: "x", caseInsensitive: false });
+  session.run({ slug: "owner/p", pattern: "x", caseInsensitive: false });
   assert.deepEqual(views.map((v) => v.kind), ["loading"], "同步先亮 loading");
   await flush();
   assert.deepEqual(views.map((v) => v.kind), ["loading", "hits"]);
@@ -173,8 +188,8 @@ test("session: 旧请求晚到不得覆盖新结果（seq 守卫）", async () =
   };
   const session = createGrepSession({ invoke: fake, emit: (v) => views.push(v) });
 
-  session.run({ root: "D:\\p", pattern: "old", caseInsensitive: false });
-  session.run({ root: "D:\\p", pattern: "new", caseInsensitive: false });
+  session.run({ slug: "owner/p", pattern: "old", caseInsensitive: false });
+  session.run({ slug: "owner/p", pattern: "new", caseInsensitive: false });
   await flush();
   assert.deepEqual(
     views.map((v) => v.kind),
@@ -198,8 +213,8 @@ test("session: 一个已被取代的请求，其迟到的失败也不许覆盖�
   const fake: GrepInvoke = (_cmd, args) =>
     String(args?.pattern) === "old" ? slow.promise : Promise.resolve(makeResult({ files_scanned: 2 }));
   const session = createGrepSession({ invoke: fake, emit: (v) => views.push(v) });
-  session.run({ root: "D:\\p", pattern: "old", caseInsensitive: false });
-  session.run({ root: "D:\\p", pattern: "new", caseInsensitive: false });
+  session.run({ slug: "owner/p", pattern: "old", caseInsensitive: false });
+  session.run({ slug: "owner/p", pattern: "new", caseInsensitive: false });
   await flush();
   slow.reject("这是一次已被取代的失败");
   await flush();
@@ -211,7 +226,7 @@ test("session: dispose 后在途回答落地无门", async () => {
   const views: GrepView[] = [];
   const slow = deferred<GrepResult>();
   const session = createGrepSession({ invoke: () => slow.promise, emit: (v) => views.push(v) });
-  session.run({ root: "D:\\p", pattern: "x", caseInsensitive: false });
+  session.run({ slug: "owner/p", pattern: "x", caseInsensitive: false });
   session.dispose();
   slow.resolve(makeResult({ hits: [{ file: "a.ts", line: 1, content: "x" }] }));
   await flush();
@@ -226,7 +241,7 @@ test("session: 空 pattern 是 invalid（empty），且根本不发请求", asyn
     return makeResult();
   };
   const session = createGrepSession({ invoke: fake, emit: (v) => views.push(v) });
-  session.run({ root: "D:\\p", pattern: "   ", caseInsensitive: false });
+  session.run({ slug: "owner/p", pattern: "   ", caseInsensitive: false });
   await flush();
   assert.equal(calls, 0, "空白输入不许花一次扫描");
   assert.equal(views.length, 1);

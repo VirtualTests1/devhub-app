@@ -5,8 +5,9 @@
  *
  * R1 的 bakeoff 结论：`repo_grep` **只做单仓库的行级内容检索**，不参与跨仓库排序
  * （跨仓库标识形态召回 0、成本比 BM25 高两个数量级、且返回自身不排序）。所以这一层
- * 从类型到参数都钉在「一个 root + 一个 pattern」上：没有 slug 列表，没有打分，输出
- * 只有「哪个文件哪一行」。
+ * 从类型到参数都钉在「一个仓库 + 一个 pattern」上：没有 slug 列表，没有打分，输出
+ * 只有「哪个文件哪一行」。仓库用 slug 指定，后端在索引里解析成路径——页面不再能
+ * 把任意本地路径交给扫描命令。
  *
  * ## 为什么这些决策住在 `.ts` 而不是对话框里
  *
@@ -31,6 +32,12 @@ import { messageOf } from "./report-error";
  * 「没有截断」。500 也是「一个对话框列表渲染得动、IPC 载荷不至于撑爆」的量级。
  */
 export const GREP_LIMIT = 500;
+
+/**
+ * One repository's scan budget, mirroring `searchgrep.rs`'s `SINGLE_DEADLINE`.
+ * The UI uses it in the partial-result warning; the backend still owns the clock.
+ */
+export const GREP_DEADLINE_SECONDS = 10;
 
 /**
  * 输入停顿多久才把一次改动发出去（r21-N1-2）。
@@ -68,6 +75,10 @@ export type GrepResult = {
   elapsed_ms: number;
   /** 后端原话（正则编译失败 / 目录不存在），原样呈现，不当作「没找到」。 */
   error: string | null;
+  /** `limit` cut the scan; absent on an old backend. */
+  truncated?: boolean;
+  /** The 10 s deadline cut the scan; absent on an old backend. */
+  timed_out?: boolean;
 };
 
 /** 按文件分好组的一段命中，顺序 = 第一次出现的文件顺序。 */
@@ -76,8 +87,8 @@ export type GrepGroup = { file: string; hits: GrepHit[] };
 /** 前端侧就能判定、还没发请求的两种「这次不能问」。 */
 export type GrepIssue = "empty" | "tooLong";
 
-/** 一次查询的全部输入：单仓库（root）+ pattern，没有第二个仓库的位置。 */
-export type GrepQuery = { root: string; pattern: string; caseInsensitive: boolean };
+/** 一次查询的全部输入：单仓库（slug）+ pattern，没有第二个仓库的位置。 */
+export type GrepQuery = { slug: string; pattern: string; caseInsensitive: boolean };
 
 /**
  * 屏幕上的五种状态 + 两种「问不了」。
@@ -91,7 +102,14 @@ export type GrepView =
   | { kind: "loading" }
   | { kind: "invalid"; issue: GrepIssue }
   | { kind: "error"; message: string }
-  | { kind: "empty"; filesScanned: number; filesSkipped: number; elapsedMs: number }
+  | {
+      kind: "empty";
+      filesScanned: number;
+      filesSkipped: number;
+      elapsedMs: number;
+      /** The scan was cut short, so "no hits" is not a complete answer. */
+      timedOut: boolean;
+    }
   | {
       kind: "hits";
       groups: GrepGroup[];
@@ -101,6 +119,8 @@ export type GrepView =
       elapsedMs: number;
       /** 命中数碰到 limit：界面必须说出「后面还有」。 */
       truncated: boolean;
+      /** The scan stopped at the deadline; the groups are a partial answer. */
+      timedOut: boolean;
     };
 
 /**
@@ -119,7 +139,7 @@ export async function runGrep(
   limit: number = GREP_LIMIT,
 ): Promise<GrepResult> {
   return await invoke("repo_grep", {
-    root: query.root,
+    slug: query.slug,
     pattern: query.pattern,
     caseInsensitive: query.caseInsensitive,
     limit,
@@ -161,8 +181,9 @@ export function classify(result: GrepResult, limit: number = GREP_LIMIT): GrepVi
   const filesScanned = result.files_scanned;
   const filesSkipped = result.files_skipped ?? 0;
   const elapsedMs = result.elapsed_ms;
+  const timedOut = result.timed_out === true;
   if (result.hits.length === 0) {
-    return { kind: "empty", filesScanned, filesSkipped, elapsedMs };
+    return { kind: "empty", filesScanned, filesSkipped, elapsedMs, timedOut };
   }
   return {
     kind: "hits",
@@ -171,7 +192,8 @@ export function classify(result: GrepResult, limit: number = GREP_LIMIT): GrepVi
     filesScanned,
     filesSkipped,
     elapsedMs,
-    truncated: result.hits.length >= limit,
+    truncated: result.truncated === true || result.hits.length >= limit,
+    timedOut,
   };
 }
 

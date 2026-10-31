@@ -35,6 +35,10 @@ pub struct GrepResult {
     pub hits: Vec<GrepHit>,
     pub elapsed_ms: u128,
     pub error: Option<String>,
+    /// `limit` stopped the scan (the hits are a prefix, not the whole answer).
+    pub truncated: bool,
+    /// The single-repository deadline expired before every candidate was read.
+    pub timed_out: bool,
 }
 
 /// 默认忽略的目录名（git/构建产物/依赖）。
@@ -80,20 +84,48 @@ pub(crate) const BINARY_SNIFF_BYTES: usize = 8192;
 /// Rust 后端命令：在一个目录（通常是某个克隆的仓库根）里搜索 pattern。
 #[tauri::command(async)]
 pub fn repo_grep(
-    root: String,
+    slug: String,
     pattern: String,
     case_insensitive: Option<bool>,
     limit: Option<usize>,
 ) -> GrepResult {
+    let roots = crate::project_roots();
+    let root = crate::repo_index::find(&roots, &slug).0;
+    let Some(root) = root else {
+        return GrepResult {
+            pattern,
+            root: slug.clone(),
+            files_scanned: 0,
+            files_skipped: 0,
+            hits: Vec::new(),
+            elapsed_ms: 0,
+            error: Some(format!("未找到仓库：{slug}")),
+            truncated: false,
+            timed_out: false,
+        };
+    };
+    // The page names a repository, never a filesystem path: `repo_index` resolves
+    // it to one the container owns, so a compromised webview cannot ask this
+    // command to read `C:\Users\...\devhub-config.json` (the old `root` argument
+    // did exactly that). The deadline and the clamped limit bound one scan even
+    // when the repository is huge or lives on a slow share.
     grep_root(
-        Path::new(&root),
         &root,
+        &root.to_string_lossy(),
         &pattern,
         case_insensitive.unwrap_or(false),
-        limit.unwrap_or(500),
-        None,
+        limit.unwrap_or(SINGLE_LIMIT_DEFAULT).clamp(1, SINGLE_LIMIT_MAX),
+        Some(Instant::now() + SINGLE_DEADLINE),
     )
 }
+
+/// Default hit cap for one repository (also the UI's explicit `GREP_LIMIT`).
+const SINGLE_LIMIT_DEFAULT: usize = 500;
+/// Hard ceiling even if a page asks for more; the IPC payload is one dialog.
+const SINGLE_LIMIT_MAX: usize = 2_000;
+/// One repository's scan budget. The batch path has its own 15 s deadline; this
+/// gives the single dialog the same "partial results, labelled as partial" shape.
+const SINGLE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// One repository's scan, shared by the single-root command and the batch one.
 ///
@@ -120,6 +152,8 @@ pub(crate) fn grep_root(
                 hits: vec![],
                 elapsed_ms: start.elapsed().as_millis(),
                 error: Some(e),
+                truncated: false,
+                timed_out: false,
             };
         }
     };
@@ -133,6 +167,8 @@ pub(crate) fn grep_root(
             hits: vec![],
             elapsed_ms: start.elapsed().as_millis(),
             error: Some(format!("目录不存在：{root_label}")),
+            truncated: false,
+            timed_out: false,
         };
     }
 
@@ -166,16 +202,18 @@ pub(crate) fn grep_root(
         .map(|e| e.into_path())
         .collect();
 
-    let (hits, scanned, skipped) = scan_candidates(candidates, &re, root_path, limit, deadline);
+    let outcome = scan_candidates(candidates, &re, root_path, limit, deadline);
 
     GrepResult {
         pattern: pattern.to_string(),
         root: root_label.to_string(),
-        files_scanned: scanned,
-        files_skipped: skipped,
-        hits,
+        files_scanned: outcome.scanned,
+        files_skipped: outcome.skipped,
+        hits: outcome.hits,
         elapsed_ms: start.elapsed().as_millis(),
         error: None,
+        truncated: outcome.truncated,
+        timed_out: outcome.timed_out,
     }
 }
 
@@ -485,15 +523,32 @@ fn scan_file(re: &Regex, path: &Path, root: &Path) -> (Vec<GrepHit>, bool) {
 /// of files actually read (a file whose read fails is still attempted and counted,
 /// exactly like the serial loop). `limit` caps each chunk locally and the final
 /// truncation caps the whole result.
+/// What one scan actually covered. The two booleans are part of the answer:
+/// a prefix returned as if it were the whole repository is the failure this type
+/// exists to make impossible.
+struct ScanOutcome {
+    hits: Vec<GrepHit>,
+    scanned: usize,
+    skipped: usize,
+    truncated: bool,
+    timed_out: bool,
+}
+
 fn scan_candidates(
     candidates: Vec<PathBuf>,
     re: &Regex,
     root: &Path,
     limit: usize,
     deadline: Option<Instant>,
-) -> (Vec<GrepHit>, usize, usize) {
+) -> ScanOutcome {
     if candidates.is_empty() || limit == 0 {
-        return (Vec::new(), 0, 0);
+        return ScanOutcome {
+            hits: Vec::new(),
+            scanned: 0,
+            skipped: 0,
+            truncated: false,
+            timed_out: false,
+        };
     }
     let threads = std::thread::available_parallelism()
         .map(|n| n.get())
@@ -502,7 +557,7 @@ fn scan_candidates(
         .min(candidates.len());
     let chunk_size = candidates.len().div_ceil(threads.max(1));
     let chunks: Vec<&[PathBuf]> = candidates.chunks(chunk_size.max(1)).collect();
-    let per_chunk: Vec<(usize, usize, Vec<GrepHit>)> = std::thread::scope(|scope| {
+    let per_chunk: Vec<(usize, usize, Vec<GrepHit>, bool, bool)> = std::thread::scope(|scope| {
         let handles: Vec<_> = chunks
             .into_iter()
             .map(|chunk| {
@@ -510,8 +565,11 @@ fn scan_candidates(
                     let mut scanned = 0usize;
                     let mut skipped = 0usize;
                     let mut hits = Vec::new();
+                    let mut truncated = false;
+                    let mut timed_out = false;
                     for path in chunk {
                         if deadline.is_some_and(|d| Instant::now() >= d) {
+                            timed_out = true;
                             break;
                         }
                         scanned += 1;
@@ -521,28 +579,42 @@ fn scan_candidates(
                         }
                         hits.extend(found);
                         if hits.len() >= limit {
+                            truncated = true;
                             break;
                         }
                     }
-                    (scanned, skipped, hits)
+                    (scanned, skipped, hits, truncated, timed_out)
                 })
             })
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().unwrap_or((0, 0, Vec::new())))
+            .map(|h| h.join().unwrap_or((0, 0, Vec::new(), false, false)))
             .collect()
     });
     let mut hits = Vec::new();
     let mut scanned = 0usize;
     let mut skipped = 0usize;
-    for (n, refused, mut part) in per_chunk {
+    let mut truncated = false;
+    let mut timed_out = false;
+    for (n, refused, mut part, chunk_truncated, chunk_timed_out) in per_chunk {
         scanned += n;
         skipped += refused;
+        truncated |= chunk_truncated;
+        timed_out |= chunk_timed_out;
         hits.append(&mut part);
     }
+    if hits.len() > limit {
+        truncated = true;
+    }
     hits.truncate(limit);
-    (hits, scanned, skipped)
+    ScanOutcome {
+        hits,
+        scanned,
+        skipped,
+        truncated,
+        timed_out,
+    }
 }
 
 #[cfg(test)]
@@ -591,14 +663,27 @@ let x = {i};
         let s = Scratch::new("order");
         let re = Regex::new("fn hit_").unwrap();
         let files = candidates(&s.0);
-        let (serial, serial_scanned, _) = scan_candidates(files.clone(), &re, &s.0, 1000, None);
+        let full = scan_candidates(files.clone(), &re, &s.0, 1000, None);
         // Force a second scanning shape by asking for 3 threads' worth of chunks via a small limit.
-        let (limited, _, _) = scan_candidates(files, &re, &s.0, 5, None);
+        let limited = scan_candidates(files, &re, &s.0, 5, None);
+        let serial = full.hits;
         assert_eq!(serial.len(), 12);
-        assert_eq!(limited.len(), 5);
-        assert_eq!(serial_scanned, 12);
+        assert_eq!(limited.hits.len(), 5);
+        assert!(limited.truncated, "a limit hit must be reported, not silently short");
+        assert!(!full.truncated && !full.timed_out, "a complete scan must not claim truncation");
+        assert_eq!(full.scanned, 12);
         assert!(serial.windows(2).all(|w| w[0].file <= w[1].file), "hits must stay in walk order");
-        assert!(limited.iter().all(|h| re.is_match(&h.content)));
+        assert!(limited.hits.iter().all(|h| re.is_match(&h.content)));
+    }
+
+    #[test]
+    fn an_expired_deadline_is_reported_as_a_partial_scan() {
+        let s = Scratch::new("deadline");
+        let re = Regex::new("fn hit_").unwrap();
+        let out = scan_candidates(candidates(&s.0), &re, &s.0, 1000, Some(Instant::now()));
+        assert!(out.timed_out, "the caller must be able to say the scan was cut short");
+        assert!(out.hits.is_empty(), "an expired deadline reads no files");
+        assert_eq!(out.scanned, 0);
     }
 
     #[test]
@@ -615,18 +700,29 @@ let x = {i};
         // NUL inside the sniff window: binary even though it starts as text.
         std::fs::write(root.join("bin.rs"), b"fn hit() {}\0\n").unwrap();
 
-        let out = repo_grep(
-            root.to_string_lossy().to_string(),
-            "fn hit".to_string(),
-            Some(false),
-            Some(100),
-        );
+        let out = grep_root(&root, &root.to_string_lossy(), "fn hit", false, 100, None);
 
         assert!(out.error.is_none(), "unexpected error: {:?}", out.error);
         assert_eq!(out.files_scanned, 3, "all three are attempted");
         assert_eq!(out.files_skipped, 2, "oversized + binary are reported, not silent");
         assert_eq!(out.hits.len(), 1, "only the small text file can match");
         assert_eq!(out.hits[0].file, "small.rs");
+    }
+
+    #[test]
+    fn the_command_resolves_a_slug_and_refuses_an_arbitrary_path() {
+        // The old command took this string as the directory. It is now a slug
+        // lookup: a path (or an unknown owner/repo) must produce an error, never
+        // a scan of that path.
+        let out = repo_grep(
+            "D:\\Windows".to_string(),
+            "password".to_string(),
+            Some(false),
+            Some(100),
+        );
+        assert!(out.error.is_some(), "a path is not a slug and must not be scanned");
+        assert!(out.hits.is_empty());
+        assert!(!out.truncated && !out.timed_out);
     }
 
     #[test]
@@ -638,12 +734,7 @@ let x = {i};
             .unwrap();
         std::fs::write(s.0.join(".git").join("hook.ts"), "fn hit_git() {}\n").unwrap();
 
-        let out = repo_grep(
-            s.0.to_string_lossy().to_string(),
-            "fn hit_".to_string(),
-            Some(false),
-            Some(100),
-        );
+        let out = grep_root(&s.0, &s.0.to_string_lossy(), "fn hit_", false, 100, None);
 
         assert!(out.error.is_none(), "unexpected error: {:?}", out.error);
         assert_eq!(out.files_scanned, 12, "only the twelve src files are candidates");
@@ -758,7 +849,7 @@ let x = {i};
         }
         let serial_ms = t0.elapsed().as_millis();
         let t1 = std::time::Instant::now();
-        let (parallel, _, _) = scan_candidates(files.clone(), &re, &root, 100_000, None);
+        let parallel = scan_candidates(files.clone(), &re, &root, 100_000, None).hits;
         let parallel_ms = t1.elapsed().as_millis();
         println!("grep files={} hits={} serial={}ms parallel={}ms", files.len(), serial.len(), serial_ms, parallel_ms);
         assert_eq!(serial.len(), parallel.len(), "same candidate set and regex must find the same hits");

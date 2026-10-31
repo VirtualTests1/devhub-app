@@ -2190,4 +2190,5 @@ export const EN_VALUES = [
   "Clear",
   "Operation records cleared",
   "Failed to clear: {msg}",
+  "The scan stopped at its {seconds}s limit; these results may be incomplete.",
 ] as const;

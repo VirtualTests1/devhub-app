@@ -29,6 +29,18 @@ export default async function (cdp) {
 
   const version = await cdp.evaluate(`return await window.__TAURI_INTERNALS__.invoke('app_version')`);
 
+  // A previous failed run may have left the palette open; close it through its
+  // own input so the settings clicks are not blocked by the scrim.
+  await cdp.evaluate(`
+    const input = document.querySelector('[data-layer="dialog"] input');
+    if (input) {
+      input.focus();
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    }
+    await new Promise((r) => setTimeout(r, 400));
+    return true;
+  `);
+
   // Normalize to Chinese first; the chain may run after an English scenario.
   const initialLang = await cdp.evaluate(`return document.documentElement.lang`);
   if (initialLang !== "zh-CN") {
@@ -92,12 +104,18 @@ export default async function (cdp) {
   await wait(400);
   const paletteOpen = await cdp.evaluate(`return !!document.querySelector('[data-layer="dialog"]')`);
   const imeEscape = await cdp.evaluate(`
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
+    const input = document.querySelector('[data-layer="dialog"] input');
+    if (!input) return false;
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true }));
     await new Promise((r) => setTimeout(r, 150));
     return !!document.querySelector('[data-layer="dialog"]');
   `);
   const normalEscape = await cdp.evaluate(`
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+    const input = document.querySelector('[data-layer="dialog"] input');
+    if (!input) return false;
+    input.focus();
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await new Promise((r) => setTimeout(r, 500));
     return !!document.querySelector('[data-layer="dialog"]');
   `);

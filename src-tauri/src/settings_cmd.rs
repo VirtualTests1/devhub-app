@@ -452,6 +452,22 @@ pub(crate) fn usable_token(stored: &str) -> String {
     }
 }
 
+/// The token in the shape an optional `Authorization` header takes: `None` when
+/// there is nothing usable to send.
+///
+/// Separate from [`usable_token`] because `Some("")` and `None` are not the same
+/// at the curl boundary: an empty string still builds `Authorization: Bearer `,
+/// while the ciphertext of an unreadable DPAPI blob is a non-empty string that
+/// would be sent as if it were a credential. Every read path uses this form.
+pub(crate) fn usable_token_opt(stored: &str) -> Option<String> {
+    let token = usable_token(stored);
+    if token.is_empty() {
+        None
+    } else {
+        Some(token)
+    }
+}
+
 /// Reads the config **for a write**.
 ///
 /// `read_config` deliberately answers with defaults when the file cannot be read
@@ -1402,6 +1418,14 @@ mod token_storage_tests {
     fn an_undecryptable_token_is_empty_not_ciphertext() {
         let foreign = format!("{}{}", crypto::DPAPI_PREFIX, "00");
         assert_eq!(usable_token(&foreign), "", "ciphertext must never be sent to GitHub as a token");
+        assert_eq!(usable_token_opt(&foreign), None, "the optional form must be None, not Some(ciphertext)");
+    }
+
+    #[test]
+    fn the_optional_token_form_distinguishes_empty_from_present() {
+        assert_eq!(usable_token_opt(""), None);
+        assert_eq!(usable_token_opt("   "), None);
+        assert_eq!(usable_token_opt("ghp_plain"), Some("ghp_plain".to_string()));
     }
 
     #[test]

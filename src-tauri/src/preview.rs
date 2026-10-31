@@ -189,7 +189,7 @@ pub(crate) async fn preview_remote(
             return Err(format!("远端信息只支持 github.com，收到 {}", r.host));
         }
         let cfg = read_config();
-        let token = cfg.github_token;
+        let token = crate::settings_cmd::usable_token_opt(&cfg.github_token);
         let route = cfg.search_route;
         let ip = if route == "bypass" && netpath::read_hosts_state().hijacked {
             resolve_agreed_ip("api.github.com")
@@ -197,7 +197,7 @@ pub(crate) async fn preview_remote(
             None
         };
         let full_name = format!("{}/{}", r.owner, r.repo);
-        let facts = fetch_repo_facts(&full_name, Some(token.as_str()), ip.as_deref());
+        let facts = fetch_repo_facts(&full_name, token.as_deref(), ip.as_deref());
         let (facts, error) = match facts {
             Ok(f) => (Some(f), None),
             Err(e) => (None, Some(e)),

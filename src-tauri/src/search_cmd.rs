@@ -37,7 +37,7 @@ pub(crate) async fn search_status(settings: tauri::State<'_, Settings>) -> Resul
             Ok(c) => (c.remaining_budget(), c.entry_count()),
             Err(_) => (0, 0),
         };
-        let has_token = !read_config().github_token.trim().is_empty();
+        let has_token = !settings_cmd::usable_token(&read_config().github_token).is_empty();
         SearchStatus {
             remaining_budget: remaining,
             cached_queries: cached,
@@ -60,7 +60,14 @@ pub(crate) async fn search_status(settings: tauri::State<'_, Settings>) -> Resul
 /// calls it must not freeze the window.
 #[tauri::command]
 pub(crate) async fn verify_github_token() -> Result<auth::TokenReport, String> {
-    let token = read_config().github_token;
+    let stored = read_config().github_token;
+    let token = settings_cmd::usable_token(&stored);
+    // `read_config` leaves an undecryptable DPAPI value in place. Say that,
+    // instead of letting `auth::verify` treat the ciphertext as a real token and
+    // send it to GitHub (or reporting it as "no token entered").
+    if token.is_empty() && !stored.trim().is_empty() {
+        return Err("已保存的 GitHub 令牌无法解密（可能来自另一个 Windows 用户）；请在 设置 → GitHub Token 重新填写。".to_string());
+    }
     let route = read_config().search_route;
     tauri::async_runtime::spawn_blocking(move || {
         // Same routing rule as search and heat: 绕过 only means something when `hosts`
@@ -96,7 +103,7 @@ pub(crate) async fn verify_github_token() -> Result<auth::TokenReport, String> {
 /// and `repo_metadata` already hold: 记录 answers "someone changed something").
 #[tauri::command]
 pub(crate) async fn repo_heat_many(names: Vec<String>, force: Option<bool>) -> Result<Vec<heat::Heat>, String> {
-    let token = read_config().github_token;
+    let token = settings_cmd::usable_token_opt(&read_config().github_token);
     let route = read_config().search_route;
     let force = force.unwrap_or(false);
     tauri::async_runtime::spawn_blocking(move || {
@@ -111,7 +118,7 @@ pub(crate) async fn repo_heat_many(names: Vec<String>, force: Option<bool>) -> R
         heat::heat_many(
             heat::shared(),
             &slugs,
-            &token,
+            token.as_deref().unwrap_or(""),
             resolve.as_deref(),
             std::time::Instant::now(),
             force,
@@ -134,7 +141,7 @@ pub(crate) async fn search_repositories(
     page: u32,
     sort: String,
 ) -> Result<search::SearchOutcome, String> {
-    let token = read_config().github_token;
+    let token = settings_cmd::usable_token_opt(&read_config().github_token);
     let route = read_config().search_route;
     // Clone the Arc so the worker owns a handle; the state guard stays behind.
     let cache = std::sync::Arc::clone(&settings.search);
@@ -158,7 +165,7 @@ pub(crate) async fn search_repositories(
             page,
             PAGE_SIZE,
             &sort,
-            Some(token.as_str()),
+            token.as_deref(),
             resolve.as_ref().map(|(h, i)| (h.as_str(), i.as_str())),
         ))
     })
@@ -169,7 +176,7 @@ pub(crate) async fn search_repositories(
 /// Reads one repository's README for the in-app preview.
 #[tauri::command]
 pub(crate) async fn repo_readme(full_name: String) -> Result<String, String> {
-    let token = read_config().github_token;
+    let token = settings_cmd::usable_token_opt(&read_config().github_token);
     let route = read_config().search_route;
     tauri::async_runtime::spawn_blocking(move || {
         let ip = if route == "bypass" && netpath::read_hosts_state().hijacked {
@@ -177,7 +184,7 @@ pub(crate) async fn repo_readme(full_name: String) -> Result<String, String> {
         } else {
             None
         };
-        search::fetch_readme(&full_name, Some(token.as_str()), ip.as_deref())
+        search::fetch_readme(&full_name, token.as_deref(), ip.as_deref())
     })
     .await
     .map_err(|e| format!("README 任务异常: {e}"))?
@@ -199,7 +206,7 @@ pub(crate) fn clear_search_cache(settings: tauri::State<'_, Settings>) {
 /// breaks this call for exactly the reason it broke search.
 #[tauri::command]
 pub(crate) async fn list_starred_repos(page: u32) -> Result<stars::StarPage, String> {
-    let token = read_config().github_token;
+    let token = settings_cmd::usable_token_opt(&read_config().github_token);
     let route = read_config().search_route;
     tauri::async_runtime::spawn_blocking(move || {
         let ip = if route == "bypass" && netpath::read_hosts_state().hijacked {
@@ -207,7 +214,7 @@ pub(crate) async fn list_starred_repos(page: u32) -> Result<stars::StarPage, Str
         } else {
             None
         };
-        stars::list_starred_page(page, Some(token.as_str()), ip.as_deref())
+        stars::list_starred_page(page, token.as_deref(), ip.as_deref())
     })
     .await
     .map_err(|e| format!("星标列表任务异常: {e}"))?

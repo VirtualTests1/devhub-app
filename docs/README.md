@@ -24,6 +24,7 @@
 | [repo-health](research/repo-health.md) | `health.rs` + 跨仓库健康卡 |
 | [scale-1000](research/scale-1000.md) | 墙派生优化；1,000 仓库部分已被 r34 取代 |
 | [scale-1000-r34](research/scale-1000-r34.md) | 1,000 仓库采样解析、索引读数 |
+| [health-200](research/health-200-2026-10-31.md) | 200 仓库健康扫描：4 路并行 5.7–6.3 s |
 | [secret-hygiene](research/secret-hygiene.md) | 本地只读密钥扫描，命中已脱敏 |
 | [sha256-repos](research/sha256-repos.md) | 下载后按 SHA-256 校验仓库内容 |
 | [update-architecture](research/update-architecture.md) | 检查更新只读，不自动替换二进制 |
@@ -47,3 +48,5 @@
   `CancelIoEx` 在同步读上 0 ms 返回），真实编辑器的长期漏事件率仍未测。
 - [dependency-alerts](research/dependency-alerts.md)：`glib` 中危告警按 Linux-only 接受，
   仍保留 Dependabot 监控。
+- [dependency-updates](research/dependency-updates-2026-10-31.md)：0.4.0 发布冻结依赖；
+  dev-only minimatch moderate 待工具链升级，Rust patch 更新留到下一轮。

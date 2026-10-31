@@ -61,7 +61,19 @@ const read = (rel) => readFileSync(join(ROOT, rel), "utf8");
 // discoverDocs() still picks up any future top-level docs/*.md, excluding
 // docs/archive/** — dated process reports whose citations were true when
 // written and are expected to rot. They are history, not contract.
-const ROOT_DOCS = ["README.md"];
+// Public contracts, not just the README. SECURITY.md promises a reporting path,
+// AGENTS.md constrains contributors, the portable guide is what a user reads
+// before running the binary, and THIRD_PARTY_NOTICES names the supply-chain
+// documents. All four are scanned for the same resolvable `pnpm`/`scripts/`/
+// `src/` references as the README; a stale command there is as misleading as one
+// on the front page.
+const ROOT_DOCS = [
+  "README.md",
+  "SECURITY.md",
+  "AGENTS.md",
+  "portable/使用说明.md",
+  "THIRD_PARTY_NOTICES.md",
+];
 const ARCHIVE_PREFIX = "docs/archive/";
 
 function discoverDocs() {
